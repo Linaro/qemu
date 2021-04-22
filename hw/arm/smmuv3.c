@@ -467,9 +467,6 @@ static int decode_cd(SMMUTransCfg *cfg, CD *cd, SMMUEventInfo *event)
     if (!CD_A(cd)) {
         goto bad_cd; /* SMMU_IDR0.TERM_MODEL == 1 */
     }
-    if (CD_S(cd)) {
-        goto bad_cd; /* !STE_SECURE && SMMU_IDR0.STALL_MODEL == 1 */
-    }
     if (CD_HA(cd) || CD_HD(cd)) {
         goto bad_cd; /* HTTU = 0 */
     }
