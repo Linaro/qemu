@@ -874,6 +874,10 @@ for opt do
   ;;
   --with-coroutine=*) coroutine="$optarg"
   ;;
+  --disable-vtd-debug) vtd_debug="no"
+  ;;
+  --enable-vtd-debug) vtd_debug="yes"
+  ;;
   --disable-zlib-test)
   ;;
   --disable-virtio-blk-data-plane|--enable-virtio-blk-data-plane)
@@ -2388,6 +2392,9 @@ if test -n "$gdb_bin"; then
     if version_ge ${gdb_version##* } 9.1; then
         echo "HAVE_GDB_BIN=$gdb_bin" >> $config_host_mak
     fi
+fi
+if test "$vtd_debug" = "yes" ; then
+  echo "CONFIG_VTD_DEBUG=y" >> $config_host_mak
 fi
 
 echo "ROMS=$roms" >> $config_host_mak
