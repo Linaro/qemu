@@ -479,9 +479,9 @@ int msix_present(PCIDevice *dev)
 /* Is MSI-X enabled? */
 int msix_enabled(PCIDevice *dev)
 {
-    return (dev->cap_present & QEMU_PCI_CAP_MSIX) &&
-        (dev->config[dev->msix_cap + MSIX_CONTROL_OFFSET] &
-         MSIX_ENABLE_MASK);
+    return ((dev->cap_present & QEMU_PCI_CAP_MSIX) &&
+        ((dev->config[dev->msix_cap + MSIX_CONTROL_OFFSET] &
+        (MSIX_ENABLE_MASK | MSIX_MASKALL_MASK)) == MSIX_ENABLE_MASK));
 }
 
 /* Send an MSI-X message */
