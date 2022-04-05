@@ -2983,6 +2983,27 @@ static void vfio_unregister_ext_irq_notifiers(VFIOPCIDevice *vdev)
     g_free(vdev->ext_irqs);
 }
 
+static int vfio_iommu_set_pasid_table(PCIBus *bus, int32_t devfn,
+                                      IOMMUConfig *config)
+{
+    PCIDevice *pdev = bus->devices[devfn];
+    VFIOPCIDevice *vdev = DO_UPCAST(VFIOPCIDevice, pdev, pdev);
+    VFIOContainer *bcontainer = vdev->vbasedev.container;
+    VFIOIOMMUFDContainer *container = container_of(bcontainer,
+						   VFIOIOMMUFDContainer, obj);
+    struct vfio_iommu_type1_set_pasid_table info;
+
+    info.argsz = sizeof(info);
+    info.flags = VFIO_PASID_TABLE_FLAG_SET;
+    memcpy(&info.config, &config->pasid_cfg, sizeof(config->pasid_cfg));
+
+    return ioctl(container->iommufd, VFIO_IOMMU_SET_PASID_TABLE, &info);
+}
+
+static PCIPASIDOps vfio_pci_pasid_ops = {
+    .set_pasid_table = vfio_iommu_set_pasid_table,
+};
+
 static void vfio_realize(PCIDevice *pdev, Error **errp)
 {
     VFIOPCIDevice *vdev = VFIO_PCI(pdev);
@@ -3266,6 +3287,8 @@ static void vfio_realize(PCIDevice *pdev, Error **errp)
                                   VFIO_IRQ_SUBTYPE_DMA_FAULT,
                                   vfio_dma_fault_notifier_handler);
     vfio_setup_resetfn_quirk(vdev);
+
+    pci_setup_pasid_ops(pdev, &vfio_pci_pasid_ops);
 
     return;
 
