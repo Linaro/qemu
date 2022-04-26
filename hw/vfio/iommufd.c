@@ -432,6 +432,7 @@ static int iommufd_attach_device(VFIODevice *vbasedev, AddressSpace *as,
      * should be updated.
      */
     vfio_host_win_add(bcontainer, 0, (hwaddr)-1, 4096);
+    bcontainer->pgsizes = 4096;
 
     /*
      * TODO: kvmgroup, unable to do it before the protocol done
