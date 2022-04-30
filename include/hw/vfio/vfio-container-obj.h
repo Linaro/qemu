@@ -92,6 +92,7 @@ struct VFIOContainer {
     /* private */
     Object parent_obj;
 
+    MemoryListener prereg_listener;
     VFIOAddressSpace *space;
     Error *error;
     bool initialized;

@@ -353,6 +353,7 @@ static int iommufd_attach_device(VFIODevice *vbasedev, AddressSpace *as,
     int ret, devfd, iommufd;
     uint32_t ioas_id;
     Error *err = NULL;
+    printf("gzf %s\n", __func__);
 
     devfd = vfio_get_devicefd(vbasedev->sysfsdev, errp);
     if (devfd < 0) {
@@ -495,6 +496,7 @@ static void iommufd_detach_device(VFIODevice *vbasedev)
     VFIOAddressSpace *space;
     Error *err;
 
+    printf("gzf %s\n", __func__);
     if (!bcontainer) {
         goto out;
     }
