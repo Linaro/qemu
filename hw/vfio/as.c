@@ -485,6 +485,14 @@ static int vfio_dma_map_ram_section(VFIOContainer *container,
     assert(memory_region_is_ram(section->mr));
 
     iova = TARGET_PAGE_ALIGN(section->offset_within_address_space);
+
+    if (iova == 0x8000000000) {
+	    printf(" %s hack iova=0x%lx\n", __func__, iova);
+	    return 0;
+
+    }
+
+
     llend = int128_make64(section->offset_within_address_space);
     llend = int128_add(llend, section->size);
     llend = int128_and(llend, int128_exts64(TARGET_PAGE_MASK));
@@ -572,6 +580,11 @@ static void vfio_dma_unmap_ram_section(VFIOContainer *container,
     llend = int128_make64(section->offset_within_address_space);
     llend = int128_add(llend, section->size);
     llend = int128_and(llend, int128_exts64(qemu_real_host_page_mask));
+
+    if (iova == 0x8000000000) {
+	    printf(" %s hack iova=0x%lx\n", __func__, iova);
+	    return;
+    }
 
     if (int128_ge(int128_make64(iova), llend)) {
         return;
