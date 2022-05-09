@@ -707,6 +707,7 @@ static int vfio_connect_container(VFIOGroup *group, AddressSpace *as,
     VFIOAddressSpace *space;
     IOMMUMemoryRegion *iommu_mr;
     bool nested = false;
+    printf("gzf %s\n", __func__);
 
     if (memory_region_is_iommu(as->root)) {
         iommu_mr = IOMMU_MEMORY_REGION(as->root);
@@ -983,6 +984,7 @@ static VFIOGroup *vfio_get_group(int groupid, AddressSpace *as, Error **errp)
     char path[32];
     struct vfio_group_status status = { .argsz = sizeof(status) };
 
+    printf("gzf %s\n", __func__);
     QLIST_FOREACH(group, &vfio_group_list, next) {
         if (group->groupid == groupid) {
             /* Found it.  Now is it already in the right context? */
@@ -1063,6 +1065,8 @@ static int vfio_get_device(VFIOGroup *group, const char *name,
 {
     struct vfio_device_info dev_info = { .argsz = sizeof(dev_info) };
     int ret, fd;
+
+    printf("gzf %s\n", __func__);
 
     fd = ioctl(group->fd, VFIO_GROUP_GET_DEVICE_FD, name);
     if (fd < 0) {

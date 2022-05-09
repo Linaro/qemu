@@ -50,6 +50,7 @@ static int iommufd_map(VFIOContainer *bcontainer, hwaddr iova,
 {
     VFIOIOMMUFDContainer *container = container_of(bcontainer,
                                                    VFIOIOMMUFDContainer, obj);
+    printf("gzf %s iova=0x%lx\n", __func__, iova);
 
     return iommufd_map_dma(container->iommufd,
                            container->ioas_id,
@@ -77,6 +78,8 @@ static int iommufd_unmap(VFIOContainer *bcontainer,
     VFIOIOMMUFDContainer *container = container_of(bcontainer,
                                                    VFIOIOMMUFDContainer, obj);
 
+    printf("gzf %s iova=0x%lx\n", __func__, iova);
+
     /* TODO: Handle dma_unmap_bitmap with iotlb args (migration) */
     return iommufd_unmap_dma(container->iommufd,
                              container->ioas_id, iova, size);
@@ -93,6 +96,7 @@ static int vfio_get_devicefd(const char *sysfs_path, Error **errp)
     gsize length;
     int major, minor;
     dev_t vfio_devt;
+    printf("gzf %s\n", __func__);
 
     path = g_strdup_printf("%s/vfio-device", sysfs_path);
     if (stat(path, &st) < 0) {
@@ -144,6 +148,8 @@ static int vfio_get_devicefd(const char *sysfs_path, Error **errp)
         goto out;
     }
 
+
+    printf("gzf %s tmp=%s\n", __func__, tmp);
     ret = qemu_open_old(tmp, O_RDWR);
     if (ret < 0) {
         error_setg(errp, "Failed to open %s", tmp);
@@ -260,6 +266,7 @@ static int vfio_device_attach_container(VFIODevice *vbasedev,
     };
     VFIOIOASHwpt *hwpt;
     int ret;
+    printf("gzf %s container->ioas_id=%d\n", __func__, container->ioas_id);
 
     /* Bind device to iommufd */
     ret = ioctl(vbasedev->fd, VFIO_DEVICE_BIND_IOMMUFD, &bind);
@@ -399,6 +406,7 @@ static int iommufd_attach_device(VFIODevice *vbasedev, AddressSpace *as,
         error_report("Failed to alloc ioas (%s)", strerror(errno));
         return ret;
     }
+    printf("gzf %s container->ioas_id=%d\n", __func__, ioas_id);
 
     trace_vfio_iommufd_alloc_ioas(iommufd, ioas_id);
 

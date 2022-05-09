@@ -2850,6 +2850,7 @@ int pci_device_return_page_response(PCIBus *bus, int32_t devfn,
     if (!bus) {
         return -EINVAL;
     }
+    printf("gzf %s\n", __func__);
 
     dev = bus->devices[devfn];
     if (dev && dev->pasid_ops && dev->pasid_ops->return_page_response) {

@@ -2935,6 +2935,7 @@ static void vfio_dma_fault_notifier_handler(void *opaque)
     struct iommu_fault *queue;
     char *queue_buffer = NULL;
     ssize_t bytes;
+    printf("gzf %s vfio_register_ext_irq_handler\n", __func__);
 
     if (!event_notifier_test_and_clear(&ext_irq->notifier)) {
         return;
@@ -3013,6 +3014,7 @@ static int vfio_register_ext_irq_handler(VFIOPCIDevice *vdev,
     }
 
     fd = event_notifier_get_fd(n);
+    printf("gzf %s vfio_register_ext_irq_handler fd=%d\n", __func__, fd);
     qemu_set_fd_handler(fd, vfio_dma_fault_notifier_handler, NULL,
                         &vdev->ext_irqs[ext_irq_index]);
 
@@ -3079,6 +3081,8 @@ static int vfio_iommu_set_pasid_table(PCIBus *bus, int32_t devfn,
 
     info.argsz = sizeof(info);
     info.flags = VFIO_PASID_TABLE_FLAG_SET;
+ //   info.ioas_id = container->ioas_id;
+    printf("gzf %s container->ioas_id=%d\n", __func__, container->ioas_id);
     memcpy(&info.config, &config->pasid_cfg, sizeof(config->pasid_cfg));
 
     return ioctl(container->iommufd, VFIO_IOMMU_SET_PASID_TABLE, &info);
@@ -3094,6 +3098,8 @@ static int vfio_iommu_return_page_response(PCIBus *bus, int32_t devfn,
     struct iommu_page_response *queue;
     char *queue_buffer = NULL;
     ssize_t bytes;
+
+    printf("gzf %s\n", __func__);
 
     if (!vdev->dma_fault_response_region.mem) {
         return -EINVAL;
@@ -3158,6 +3164,7 @@ static void vfio_realize(PCIDevice *pdev, Error **errp)
     struct stat st;
     int i, ret, nb_ext_irqs;
     bool is_mdev;
+    printf("gzf %s\n", __func__);
 
     if (!vbasedev->sysfsdev) {
         if (!(~vdev->host.domain || ~vdev->host.bus ||
@@ -3428,6 +3435,7 @@ static void vfio_realize(PCIDevice *pdev, Error **errp)
 
     vfio_register_err_notifier(vdev);
     vfio_register_req_notifier(vdev);
+    printf("gzf %s vfio_register_ext_irq_handler\n", __func__);
     vfio_register_ext_irq_handler(vdev, VFIO_IRQ_TYPE_NESTED,
                                   VFIO_IRQ_SUBTYPE_DMA_FAULT,
                                   vfio_dma_fault_notifier_handler);
@@ -3635,6 +3643,7 @@ static void vfio_pci_dev_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     PCIDeviceClass *pdc = PCI_DEVICE_CLASS(klass);
+    printf("gzf %s\n", __func__);
 
     dc->reset = vfio_pci_reset;
     device_class_set_props(dc, vfio_pci_dev_properties);

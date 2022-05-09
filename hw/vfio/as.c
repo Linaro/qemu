@@ -194,6 +194,7 @@ static void vfio_iommu_unmap_notify(IOMMUNotifier *n, IOMMUTLBEntry *iotlb)
 						   VFIOIOMMUFDContainer, obj);
     int ret;
 
+    __u32 minsz = offsetof(struct iommu_cache_invalidate_info, granu);
     assert(iotlb->perm == IOMMU_NONE);
 
     ustruct.argsz = sizeof(ustruct);
@@ -201,15 +202,23 @@ static void vfio_iommu_unmap_notify(IOMMUNotifier *n, IOMMUTLBEntry *iotlb)
     ustruct.info.argsz = sizeof(struct iommu_cache_invalidate_info);
     ustruct.info.version = IOMMU_CACHE_INVALIDATE_INFO_VERSION_1;
     ustruct.info.cache = IOMMU_CACHE_INV_TYPE_IOTLB;
+   // ustruct.ioas_id = container->ioas_id;
 
+
+    printf("ustruct.info.argsz=%d minsz=%d\n", ustruct.info.argsz, minsz);
+
+    printf("gzf %s container->ioas_id=%d \n", __func__, container->ioas_id);
     switch (iotlb->granularity) {
     case IOMMU_INV_GRAN_DOMAIN:
+    	printf("gzf IOMMU_INV_GRAN_DOMAIN\n");
         ustruct.info.granularity = IOMMU_INV_GRANU_DOMAIN;
         break;
     case IOMMU_INV_GRAN_PASID:
     {
         struct iommu_inv_pasid_info *pasid_info;
         int archid = -1;
+
+	printf("IOMMU_INV_GRAN_PASID\n");
 
         pasid_info = &ustruct.info.granu.pasid_info;
         ustruct.info.granularity = IOMMU_INV_GRANU_PASID;
@@ -226,6 +235,8 @@ static void vfio_iommu_unmap_notify(IOMMUNotifier *n, IOMMUTLBEntry *iotlb)
         struct iommu_inv_addr_info *addr_info;
         size_t size = iotlb->addr_mask + 1;
         int archid = -1;
+
+	printf("IOMMU_INV_GRAN_ADDR start=0x%lx\n", start);
 
         addr_info = &ustruct.info.granu.addr_info;
         ustruct.info.granularity = IOMMU_INV_GRANU_ADDR;
@@ -248,6 +259,8 @@ static void vfio_iommu_unmap_notify(IOMMUNotifier *n, IOMMUTLBEntry *iotlb)
         break;
     }
     }
+
+    printf("gzf %s VFIO_IOMMU_CACHE_INVALIDATE\n", __func__);
 
     ret = ioctl(container->iommufd, VFIO_IOMMU_CACHE_INVALIDATE, &ustruct);
     if (ret) {
@@ -1284,6 +1297,7 @@ static VFIOContainerClass *
 select_iommu_backend(OnOffAuto value, Error **errp)
 {
     VFIOContainerClass *vccs = NULL;
+    printf("gzf %s\n", __func__);
 
     if (value == ON_OFF_AUTO_OFF) {
         return vfio_get_container_class(VFIO_IOMMU_BACKEND_TYPE_LEGACY);
@@ -1310,6 +1324,7 @@ int vfio_attach_device(VFIODevice *vbasedev, AddressSpace *as, Error **errp)
 {
     VFIOContainerClass *vccs;
 
+    printf("gzf %s\n", __func__);
     vccs = select_iommu_backend(vbasedev->iommufd_be, errp);
     if (!vccs) {
         return -ENOENT;
