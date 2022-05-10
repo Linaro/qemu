@@ -198,12 +198,11 @@ static void vfio_iommu_unmap_notify(IOMMUNotifier *n, IOMMUTLBEntry *iotlb)
     assert(iotlb->perm == IOMMU_NONE);
 
     ustruct.argsz = sizeof(ustruct);
+    ustruct.ioas_id = container->ioas_id;
     ustruct.flags = 0;
     ustruct.info.argsz = sizeof(struct iommu_cache_invalidate_info);
     ustruct.info.version = IOMMU_CACHE_INVALIDATE_INFO_VERSION_1;
     ustruct.info.cache = IOMMU_CACHE_INV_TYPE_IOTLB;
-   // ustruct.ioas_id = container->ioas_id;
-
 
     printf("ustruct.info.argsz=%d minsz=%d\n", ustruct.info.argsz, minsz);
 
