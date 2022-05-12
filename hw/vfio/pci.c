@@ -3056,10 +3056,10 @@ static int vfio_iommu_cache_inv_type_pasid(PCIBus *bus, int32_t devfn,
 						   VFIOIOMMUFDContainer, obj);
     struct vfio_iommu_type1_cache_invalidate ustruct = {};
     struct iommu_inv_pasid_info *pasid_info = &ustruct.info.granu.pasid_info;
-    printf("gzf %s container->ioas_id=%d\n", __func__, container->ioas_id);
+   // printf("gzf %s container->ioas_id=%d\n", __func__, container->ioas_id);
 
     ustruct.argsz = sizeof(ustruct);
-    ustruct.ioas_id = container->ioas_id;
+    ustruct.hwpt_id = container->hwpt->hwpt_id;
     ustruct.flags = 0;
     ustruct.info.argsz = sizeof(struct iommu_cache_invalidate_info);
     ustruct.info.version = IOMMU_CACHE_INVALIDATE_INFO_VERSION_1;
@@ -3082,9 +3082,9 @@ static int vfio_iommu_set_pasid_table(PCIBus *bus, int32_t devfn,
     struct vfio_iommu_type1_set_pasid_table info;
 
     info.argsz = sizeof(info);
-    info.ioas_id = container->ioas_id;
+    info.hwpt_id = container->hwpt->hwpt_id;
     info.flags = VFIO_PASID_TABLE_FLAG_SET;
-    printf("gzf %s container->ioas_id=%d\n", __func__, container->ioas_id);
+//    printf("gzf %s container->ioas_id=%d\n", __func__, container->ioas_id);
     memcpy(&info.config, &config->pasid_cfg, sizeof(config->pasid_cfg));
 
     return ioctl(container->iommufd, VFIO_IOMMU_SET_PASID_TABLE, &info);

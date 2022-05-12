@@ -194,11 +194,13 @@ static void vfio_iommu_unmap_notify(IOMMUNotifier *n, IOMMUTLBEntry *iotlb)
 						   VFIOIOMMUFDContainer, obj);
     int ret;
 
+    printf("gzf %s container->hwpt->hwpt_id=%d\n", __func__, container->hwpt->hwpt_id);
     __u32 minsz = offsetof(struct iommu_cache_invalidate_info, granu);
     assert(iotlb->perm == IOMMU_NONE);
 
     ustruct.argsz = sizeof(ustruct);
-    ustruct.ioas_id = container->ioas_id;
+    //ustruct.ioas_id = container->ioas_id;
+    ustruct.hwpt_id = container->hwpt->hwpt_id;
     ustruct.flags = 0;
     ustruct.info.argsz = sizeof(struct iommu_cache_invalidate_info);
     ustruct.info.version = IOMMU_CACHE_INVALIDATE_INFO_VERSION_1;
@@ -206,7 +208,7 @@ static void vfio_iommu_unmap_notify(IOMMUNotifier *n, IOMMUTLBEntry *iotlb)
 
     printf("ustruct.info.argsz=%d minsz=%d\n", ustruct.info.argsz, minsz);
 
-    printf("gzf %s container->ioas_id=%d \n", __func__, container->ioas_id);
+//    printf("gzf %s container->ioas_id=%d \n", __func__, container->ioas_id);
     switch (iotlb->granularity) {
     case IOMMU_INV_GRAN_DOMAIN:
     	printf("gzf IOMMU_INV_GRAN_DOMAIN\n");
@@ -743,6 +745,8 @@ static void vfio_container_region_add(VFIOContainer *container,
         llend = int128_sub(llend, int128_one());
         iommu_idx = memory_region_iommu_attrs_to_index(iommu_mr,
                                                        MEMTXATTRS_UNSPECIFIED);
+
+	printf("gzf %s iommu_idx=%d\n", __func__, iommu_idx);
        // if (container->iommu_type == VFIO_TYPE1_NESTING_IOMMU) {
 	       //todo
 	if (1) {

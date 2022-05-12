@@ -296,7 +296,10 @@ static int vfio_device_attach_container(VFIODevice *vbasedev,
 
     hwpt = vfio_container_get_hwpt(container, attach_data.out_hwpt_id);
 
+    printf("gzf %s attach_data.out_hwpt_id=%d\n", __func__, attach_data.out_hwpt_id);
+
     QLIST_INSERT_HEAD(&hwpt->device_list, vbasedev, hwpt_next);
+    container->hwpt = hwpt;
     return 0;
 }
 

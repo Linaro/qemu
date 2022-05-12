@@ -90,6 +90,7 @@ typedef struct VFIOIOMMUFDContainer {
     int iommufd; /* /dev/vfio/vfio, empowered by the attached device */
     uint32_t ioas_id;
     QLIST_HEAD(, VFIOIOASHwpt) hwpt_list;
+    VFIOIOASHwpt *hwpt;
 } VFIOIOMMUFDContainer;
 
 typedef QLIST_HEAD(VFIOAddressSpaceList, VFIOAddressSpace) VFIOAddressSpaceList;
