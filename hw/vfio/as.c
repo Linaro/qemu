@@ -727,6 +727,10 @@ static void vfio_container_region_add(VFIOContainer *container,
         int iommu_idx;
         IOMMUNotify notify;
 	int flags;
+	bool nested = false;
+
+	memory_region_iommu_get_attr(iommu_mr, IOMMU_ATTR_VFIO_NESTED,
+                                     (void *)&nested);
 
         trace_vfio_listener_region_add_iommu(iova, end);
         /*
@@ -746,10 +750,7 @@ static void vfio_container_region_add(VFIOContainer *container,
         iommu_idx = memory_region_iommu_attrs_to_index(iommu_mr,
                                                        MEMTXATTRS_UNSPECIFIED);
 
-	printf("gzf %s iommu_idx=%d\n", __func__, iommu_idx);
-       // if (container->iommu_type == VFIO_TYPE1_NESTING_IOMMU) {
-	       //todo
-	if (1) {
+	if (nested) {
             /* IOTLB unmap notifier to propagate guest IOTLB invalidations */
             flags = IOMMU_NOTIFIER_UNMAP;
             notify = vfio_iommu_unmap_notify;
