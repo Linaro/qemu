@@ -139,6 +139,15 @@ typedef struct SMMUViommu {
     QLIST_ENTRY(SMMUViommu) next;
 } SMMUViommu;
 
+typedef struct SMMUS1Hwpt {
+    void *smmu;
+    IOMMUFDBackend *iommufd;
+    SMMUViommu *viommu;
+    uint32_t hwpt_id;
+    QLIST_HEAD(, SMMUDevice) device_list;
+    QLIST_ENTRY(SMMUViommu) next;
+} SMMUS1Hwpt;
+
 typedef struct SMMUDevice {
     void               *smmu;
     PCIBus             *bus;
@@ -146,6 +155,7 @@ typedef struct SMMUDevice {
     IOMMUMemoryRegion  iommu;
     HostIOMMUDeviceIOMMUFD *idev;
     SMMUViommu         *viommu;
+    SMMUS1Hwpt         *s1_hwpt;
     AddressSpace       as;
     uint32_t           cfg_cache_hits;
     uint32_t           cfg_cache_misses;
@@ -249,4 +259,14 @@ void smmu_iotlb_inv_ipa(SMMUState *s, int vmid, dma_addr_t ipa, uint8_t tg,
 /* Unmap the range of all the notifiers registered to any IOMMU mr */
 void smmu_inv_notifiers_all(SMMUState *s);
 
+/* IOMMUFD helpers */
+int smmu_dev_get_info(SMMUDevice *sdev, uint32_t *data_type,
+                      uint32_t data_len, void *data);
+void smmu_dev_uninstall_nested_ste(SMMUDevice *sdev, bool abort);
+int smmu_dev_install_nested_ste(SMMUDevice *sdev, uint32_t data_type,
+                                uint32_t data_len, void *data);
+int smmu_hwpt_invalidate_cache(SMMUS1Hwpt *s1_hwpt, uint32_t type, uint32_t len,
+                               uint32_t *num, void *reqs);
+int smmu_viommu_invalidate_cache(IOMMUFDViommu *viommu, uint32_t type,
+                                 uint32_t len, uint32_t *num, void *reqs);
 #endif /* HW_ARM_SMMU_COMMON_H */
