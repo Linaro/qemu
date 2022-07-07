@@ -34,7 +34,7 @@
 #include "smmu-internal.h"
 
 #include <linux/iommufd.h>
-#include "hw/iommufd/iommufd.h"
+#include "sysemu/iommufd.h"
 
 /**
  * smmuv3_trigger_irq - pulse @irq if enabled and update
@@ -820,7 +820,7 @@ static void smmu_iommu_cache_invalidate_addr(SMMUDevice *sdev,
         return;
     }
 
-    if (iommufd_invalidate_cache(hwpt->iommufd, hwpt->hwpt_id, cache_info)) {
+    if (iommufd_backend_invalidate_cache(hwpt->iommufd, hwpt->hwpt_id, cache_info)) {
         error_report("Cache flush failed");
     }
     g_free(cache_info);
@@ -898,7 +898,7 @@ static void smmu_iommu_cache_invalidate_asid(SMMUDevice *sdev, int asid)
     cache_info->granularity = IOMMU_INV_GRANU_PASID;
     cache_info->granu.pasid_info.archid = asid;
 
-    if (iommufd_invalidate_cache(hwpt->iommufd, hwpt->hwpt_id, cache_info)) {
+    if (iommufd_backend_invalidate_cache(hwpt->iommufd, hwpt->hwpt_id, cache_info)) {
         error_report("Cache flush failed");
     }
 
@@ -1026,7 +1026,7 @@ static void smmuv3_notify_cd_inv(SMMUState *bs, uint32_t sid, uint32_t ssid)
     cache_info->granu.pasid_info.pasid = ssid;
     cache_info->granu.pasid_info.flags = IOMMU_INV_PASID_FLAGS_PASID;
 
-    if (iommufd_invalidate_cache(hwpt->iommufd, hwpt->hwpt_id, cache_info)) {
+    if (iommufd_backend_invalidate_cache(hwpt->iommufd, hwpt->hwpt_id, cache_info)) {
         error_report("Cache flush failed");
     }
 
@@ -1129,7 +1129,7 @@ static void smmuv3_destroy_hwpt(SMMUHwpt *hwpt)
 {
     qemu_set_fd_handler(hwpt->eventfd, NULL, NULL, hwpt);
     close(hwpt->fault_fd);
-    iommufd_free_id(hwpt->iommufd, hwpt->hwpt_id);
+    iommufd_backend_free_id(hwpt->iommufd, hwpt->hwpt_id);
     event_notifier_cleanup(&hwpt->notifier);
 }
 
@@ -1200,7 +1200,7 @@ static void smmuv3_notify_config_change(SMMUState *bs, uint32_t sid)
 
     smmuv3_cfg->config = IOMMU_PASID_CONFIG_TRANSLATE;
 
-    ret = iommufd_alloc_s1_hwpt(idev->iommufd, idev->dev_id,
+    ret = iommufd_backend_alloc_s1_hwpt(idev->iommufd, idev->dev_id,
                                 cfg->s1ctxptr, idev->hwpt_id,
                                 fd, &config, &hwpt_id, &fault_data_fd);
     if (ret) {
@@ -1216,7 +1216,7 @@ static void smmuv3_notify_config_change(SMMUState *bs, uint32_t sid)
     qemu_set_fd_handler(fd, smmuv3_dma_fault_notifier_handler, NULL, hwpt);
 
     pasid_ptr = &pasid;
-    ret = iommu_device_attach_stage1(idev, pasid_ptr, hwpt->hwpt_id);
+    ret = iommufd_device_attach_hwpt(idev, pasid_ptr, hwpt->hwpt_id);
     if (ret) {
         smmuv3_destroy_hwpt(hwpt);
     }
@@ -1275,7 +1275,7 @@ static void smmuv3_notify_stall_resume(SMMUState *bs, uint32_t sid,
     page_resp.grpid = stag;
     page_resp.code = code;
 
-    iommufd_page_response(hwpt->iommufd, hwpt->hwpt_id, idev->dev_id, &page_resp);
+    iommufd_backend_page_response(hwpt->iommufd, hwpt->hwpt_id, idev->dev_id, &page_resp);
 }
 
 static int smmuv3_cmdq_consume(SMMUv3State *s)
