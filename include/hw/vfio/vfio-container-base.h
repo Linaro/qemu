@@ -106,6 +106,7 @@ typedef struct VFIOContainerOps {
 struct VFIOContainer {
     const VFIOContainerOps *ops;
     VFIOAddressSpace *space;
+    MemoryListener prereg_listener;
     Error *error;
     bool initialized;
     bool dirty_pages_supported;
@@ -117,6 +118,7 @@ struct VFIOContainer {
     QLIST_HEAD(, VFIOHostDMAWindow) hostwin_list;
     QLIST_HEAD(, VFIORamDiscardListener) vrdl_list;
     QLIST_ENTRY(VFIOContainer) next;
+    bool nested;
 };
 
 bool vfio_container_check_extension(VFIOContainer *container,
