@@ -23,6 +23,7 @@
 #include "hw/pci/pci.h"
 #include "qom/object.h"
 #include "sysemu/iommufd.h"
+#include <linux/iommufd.h>
 
 #include <linux/iommufd.h>
 
@@ -160,6 +161,7 @@ typedef struct SMMUDevice {
     AddressSpace       as_sysmem;
     uint32_t           cfg_cache_hits;
     uint32_t           cfg_cache_misses;
+    struct iommu_hw_info_arm_smmuv3 info;
     QLIST_ENTRY(SMMUDevice) next;
 } SMMUDevice;
 
