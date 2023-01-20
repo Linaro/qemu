@@ -460,7 +460,7 @@ static int iommufd_attach_device(VFIODevice *vbasedev, AddressSpace *as,
         ret = memory_region_iommu_get_attr(iommu_mr, IOMMU_ATTR_IOMMUFD_DATA,
                                            (void *)&container->nested_data);
         if (ret) {
-            container->nested_data.type = IOMMU_DEVICE_DATA_NONE;
+            container->nested_data.type = IOMMU_PGTBL_TYPE_NONE;
             container->nested_data.len = 0;
             container->nested_data.ptr = NULL;
         }

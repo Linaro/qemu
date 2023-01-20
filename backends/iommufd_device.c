@@ -62,8 +62,9 @@ int iommufd_device_get_info(IOMMUFDDevice *idev,
         .flags = 0,
         .dev_id = idev->dev_id,
         .__reserved = 0,
-        .out_data_len = len,
-        .out_data_ptr = (uint64_t)data,
+        .data_len = len,
+        .data_ptr = (uint64_t)data,
+        .__reserved = 0,
     };
     int ret;
 

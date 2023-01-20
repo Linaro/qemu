@@ -2425,7 +2425,7 @@ static void vtd_init_fl_hwpt_data(struct iommu_hwpt_intel_vtd *vtd,
     vtd->pat = VTD_SM_PASID_ENTRY_PAT(pe->val[1]);
     vtd->emt = VTD_SM_PASID_ENTRY_EMT(pe->val[1]);
     vtd->addr_width = vtd_pe_get_fl_aw(pe);
-    vtd->s1_pgtbl = (uint64_t)vtd_pe_get_flpt_base(pe);
+    vtd->pgtbl_addr = (uint64_t)vtd_pe_get_flpt_base(pe);
 }
 
 /* Called under iommu->lock */
@@ -2440,7 +2440,7 @@ static int vtd_get_s2_hwpt(IntelIOMMUState *s, IOMMUFDDevice *idev,
         return 0;
     }
     ret = iommufd_backend_alloc_hwpt(idev->iommufd, idev->dev_id,
-                                     idev->ioas_id, IOMMU_DEVICE_DATA_INTEL_VTD,
+                                     idev->ioas_id, IOMMU_DEVICE_DATA_NONE,
                                      0, NULL, s2_hwpt);
     if (!ret) {
         s->s2_hwpt = g_malloc0(sizeof(*s->s2_hwpt));
@@ -2482,7 +2482,7 @@ static int vtd_init_fl_hwpt(IntelIOMMUState *s, VTDHwpt *hwpt,
     }
 
     ret = iommufd_backend_alloc_hwpt(idev->iommufd, idev->dev_id,
-                                     s2_hwptid, IOMMU_DEVICE_DATA_INTEL_VTD,
+                                     s2_hwptid, IOMMU_PGTBL_TYPE_VTD_S1,
                                      sizeof(vtd), &vtd, &hwpt_id);
     if (ret) {
         vtd_put_s2_hwpt(s);
@@ -3839,7 +3839,7 @@ static void vtd_invalidate_piotlb(VTDPASIDAddressSpace *vtd_pasid_as,
     if (!vtd_idev || !vtd_idev->idev) {
         goto out;
     }
-    if (iommufd_backend_invalidate_cache(hwpt->iommufd, hwpt->hwpt_id, IOMMU_DEVICE_DATA_INTEL_VTD, sizeof(*cache), cache)) {
+    if (iommufd_backend_invalidate_cache(hwpt->iommufd, hwpt->hwpt_id, IOMMU_PGTBL_TYPE_VTD_S1, sizeof(*cache), cache)) {
         error_report("Cache flush failed");
     }
 out:
@@ -3865,6 +3865,9 @@ static void vtd_flush_pasid_iotlb(gpointer key, gpointer value,
     IntelIOMMUState *s = vtd_pasid_as->iommu_state;;
 
     vtd_dev_get_rid2pasid(s, pci_bus_num(vtd_bus->bus), devfn, &rid2pasid);
+#if 0
+YiLiu: not needed now as kernel should be able to tell if PASID is needed
+       or not.
     /*
      * For VT-d, by default, IOTLB type cache invalidation from guest
      * is PASID selective, by removing the FLAGS_PASID bit, host VT-d
@@ -3873,7 +3876,7 @@ static void vtd_flush_pasid_iotlb(gpointer key, gpointer value,
     if (piotlb_info->pasid != rid2pasid) {
         piotlb_info->cache_info->flags |= IOMMU_VTD_QI_FLAGS_PASID;
     }
-
+#endif
     did = vtd_pe_get_domain_id(&pc_entry->pasid_entry);
 
     if ((piotlb_info->domain_id == did) &&
@@ -3907,10 +3910,11 @@ static void vtd_piotlb_pasid_invalidate(IntelIOMMUState *s,
 
     cache_info = g_malloc0(sizeof(*cache_info));
 
-    cache_info->version = IOMMU_VTD_QI_INFO_VERSION_1;
-    cache_info->cache = IOMMU_VTD_QI_TYPE_IOTLB;
-    cache_info->granularity = IOMMU_VTD_QI_GRAN_PASID;
-    cache_info->pasid = pasid;
+    /* Userspace only only needs to send domain selective pasid iotlb
+     * invalidation for pasid selective invalidation. Kernel side should
+     * figure out if PASID is needed or not per the attach info.
+     */
+    cache_info->granularity = IOMMU_VTD_QI_GRAN_DOMAIN;
 
     piotlb_info.domain_id = domain_id;
     piotlb_info.pasid = pasid;
@@ -3963,14 +3967,11 @@ static void vtd_piotlb_page_invalidate(IntelIOMMUState *s, uint16_t domain_id,
 
     cache_info = g_malloc0(sizeof(*cache_info));
 
-    cache_info->version = IOMMU_VTD_QI_INFO_VERSION_1;
-    cache_info->cache = IOMMU_VTD_QI_TYPE_IOTLB;
     cache_info->granularity = IOMMU_VTD_QI_GRAN_ADDR;
     cache_info->flags = ih ? IOMMU_VTD_QI_FLAGS_LEAF : 0;
-    cache_info->pasid = pasid;
     cache_info->addr = addr;
-    cache_info->granule_size = 1 << (12 + am);
-    cache_info->nb_granules = 1;
+    cache_info->granule_size = 1 << 12;
+    cache_info->nb_granules = 1 << am;
 
     piotlb_info.domain_id = domain_id;
     piotlb_info.pasid = pasid;
@@ -5220,12 +5221,23 @@ static bool vtd_check_idev(IntelIOMMUState *s,
     struct iommu_device_info_vtd vtd;
     enum iommu_device_data_type type;
 
-    if (iommufd_device_get_info(idev, &type, sizeof(vtd), &vtd)) {
-        error_report("IOMMU nesting cap is not compatible!!!");
+    if (iommufd_device_get_info(idev, &type,
+                                sizeof(vtd), &vtd)) {
+        error_report("Failed to get IOMMU info!!!");
         return false;
     }
 
-    return vtd_sync_hw_info(s, &vtd);
+    if (type != IOMMU_DEVICE_DATA_INTEL_VTD) {
+        error_report("IOMMU hardware type is not compatible!!!");
+        return false;
+    }
+
+    if (!vtd_sync_hw_info(s, &vtd)) {
+        error_report("IOMMU hardware capability is not compatible!!!");
+        return false;
+    }
+
+    return true;
 }
 
 static int vtd_dev_set_iommu_device(PCIBus *bus, void *opaque,
