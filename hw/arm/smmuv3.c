@@ -913,7 +913,7 @@ static void smmuv3_notify_iova(IOMMUMemoryRegion *mr,
     event.entry.iova = iova;
     event.entry.addr_mask = num_pages * (1 << granule) - 1;
     event.entry.perm = IOMMU_NONE;
-    event.entry.data_type = IOMMU_DEVICE_DATA_ARM_SMMUV3;
+    event.entry.data_type = IOMMU_PGTBL_TYPE_SMMUV3_S1;
     event.entry.data_len = sizeof(data);
     event.entry.data = &data;
 
@@ -1191,7 +1191,7 @@ static void smmuv3_config_ste(SMMUState *bs, uint32_t sid)
     trace_smmuv3_config_ste(mr->parent_obj.name,
                             iommu_config.config, cfg->s1ctxptr);
 
-    ret = smmu_iommu_install_nested_ste(bs, sdev, IOMMU_DEVICE_DATA_ARM_SMMUV3,
+    ret = smmu_iommu_install_nested_ste(bs, sdev, IOMMU_PGTBL_TYPE_SMMUV3_S1,
                                         sizeof(iommu_config), &iommu_config,
                                         smmuv3_dma_fault_notifier_handler);
     if (ret) {
@@ -1907,7 +1907,7 @@ static int smmuv3_get_attr(IOMMUMemoryRegion *iommu,
 
     if (attr == IOMMU_ATTR_IOMMUFD_DATA) {
         IOMMUFDNestedData nested_data = {
-            .type = IOMMU_DEVICE_DATA_ARM_SMMUV3,
+            .type = IOMMU_PGTBL_TYPE_SMMUV3_S1,
             .len = sizeof(smmuv3_nested_data),
             .ptr = &smmuv3_nested_data,
 	};
