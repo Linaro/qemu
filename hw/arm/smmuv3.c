@@ -638,7 +638,18 @@ static int decode_ste(SMMUv3State *s, SMMUTransCfg *cfg,
 
     decode_ste_config(cfg, config);
 
+    /* S1DSS.Terminate is same as Config.abort for default stream */
+    if (STE_CFG_S1_ENABLED(config) && STE_S1DSS(ste) == 0) {
+        cfg->aborted = true;
+    }
+
     if (cfg->aborted || cfg->bypassed) {
+        return 0;
+    }
+
+    /* S1DSS.Bypass is same as Config.bypass for default stream */
+    if (STE_CFG_S1_ENABLED(config) && STE_S1DSS(ste) == 0x1) {
+        cfg->bypassed = true;
         return 0;
     }
 
@@ -1355,6 +1366,68 @@ static void smmuv3_range_inval(SMMUState *s, Cmd *cmd, SMMUStage stage)
     }
 }
 
+static void smmuv3_install_nested_ste(SMMUDevice *sdev, int sid)
+{
+#ifdef __linux__
+    SMMUEventInfo event = {.type = SMMU_EVT_NONE, .sid = sid,
+                           .inval_ste_allowed = true};
+    struct iommu_hwpt_arm_smmuv3 nested_data = {};
+    SMMUv3State *s = sdev->smmu;
+    SMMUState *bs = &s->smmu_state;
+    uint32_t config;
+    STE ste;
+    int ret;
+
+    if (!sdev->viommu || !bs->nested) {
+        return;
+    }
+
+    if (!sdev->vdev && sdev->idev && sdev->viommu) {
+        SMMUVdev *vdev = g_new0(SMMUVdev, 1);
+        vdev->core = iommufd_backend_alloc_vdev(sdev->idev, sdev->viommu->core,
+                                                sid);
+        if (!vdev->core) {
+            error_report("failed to allocate a vDEVICE");
+            g_free(vdev);
+            return;
+        }
+        sdev->vdev = vdev;
+    }
+
+    ret = smmu_find_ste(sdev->smmu, sid, &ste, &event);
+    if (ret) {
+        /*
+         * For a 2-level Stream Table, the level-2 table might not be ready
+         * until the device gets inserted to the stream table. Ignore this.
+         */
+        return;
+    }
+
+    config = STE_CONFIG(&ste);
+    if (!STE_VALID(&ste) || !STE_CFG_S1_ENABLED(config)) {
+        smmu_dev_uninstall_nested_ste(sdev, STE_CFG_ABORT(config));
+        smmuv3_flush_config(sdev);
+        return;
+    }
+
+    nested_data.ste[0] = (uint64_t)ste.word[0] | (uint64_t)ste.word[1] << 32;
+    nested_data.ste[1] = (uint64_t)ste.word[2] | (uint64_t)ste.word[3] << 32;
+    /* V | CONFIG | S1FMT | S1CTXPTR | S1CDMAX */
+    nested_data.ste[0] &= 0xf80fffffffffffffULL;
+    /* S1DSS | S1CIR | S1COR | S1CSH | S1STALLD | EATS */
+    nested_data.ste[1] &= 0x380000ffULL;
+
+    ret = smmu_dev_install_nested_ste(sdev, IOMMU_HWPT_DATA_ARM_SMMUV3,
+                                      sizeof(nested_data), &nested_data);
+    if (ret) {
+        error_report("Unable to install nested STE=%16LX:%16LX, ret=%d",
+                     nested_data.ste[1], nested_data.ste[0], ret);
+    }
+
+    trace_smmuv3_install_nested_ste(sid, nested_data.ste[1], nested_data.ste[0]);
+#endif
+}
+
 static gboolean
 smmuv3_invalidate_ste(gpointer key, gpointer value, gpointer user_data)
 {
@@ -1365,6 +1438,8 @@ smmuv3_invalidate_ste(gpointer key, gpointer value, gpointer user_data)
     if (sid < sid_range->start || sid > sid_range->end) {
         return false;
     }
+    smmuv3_flush_config(sdev);
+    smmuv3_install_nested_ste(sdev, sid);
     trace_smmuv3_config_cache_inv(sid);
     return true;
 }
@@ -1432,6 +1507,7 @@ static int smmuv3_cmdq_consume(SMMUv3State *s)
 
             trace_smmuv3_cmdq_cfgi_ste(sid);
             smmuv3_flush_config(sdev);
+            smmuv3_install_nested_ste(sdev, sid);
 
             break;
         }
