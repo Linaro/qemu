@@ -1424,7 +1424,8 @@ static int smmuv3_invalidate_cache_all(SMMUState *s, Cmd *cmds,
 }
 
 static void smmuv3_notify_stall_resume(SMMUState *bs, uint32_t sid,
-                                       uint32_t stag, uint32_t code)
+                                       uint32_t stag, uint32_t code,
+				       uint64_t addr)
 {
     SMMUDevice *sdev = smmu_find_sdev(bs, sid);
     PageRespEntry *msg;
@@ -1440,7 +1441,8 @@ static void smmuv3_notify_stall_resume(SMMUState *bs, uint32_t sid,
 
     msg = g_malloc0(sizeof(*msg));
     msg->resp.size = sizeof(struct iommu_hwpt_page_response);
-    msg->resp.hwpt_id = hwpt->hwpt_id;
+    //msg->resp.hwpt_id = hwpt->hwpt_id;
+    msg->resp.addr = addr;
     msg->resp.dev_id = idev->dev_id;
     msg->resp.grpid = stag;
     msg->resp.code = code;
@@ -1652,12 +1654,13 @@ static int smmuv3_cmdq_consume(SMMUv3State *s)
             uint32_t sid = CMD_SID(&cmd);
             uint16_t stag = CMD_RESUME_STAG(&cmd);
             uint8_t action = CMD_RESUME_AC(&cmd);
-            uint32_t code = IOMMU_PAGE_RESP_INVALID;
+            uint32_t code = 2;
+            uint64_t addr = CMD_ADDR(&cmd);
 
             if (action) {
-                code = IOMMU_PAGE_RESP_SUCCESS;
+                code = 0;
             }
-            smmuv3_notify_stall_resume(bs, sid, stag, code);
+            smmuv3_notify_stall_resume(bs, sid, stag, code, addr);
             break;
         }
         default:

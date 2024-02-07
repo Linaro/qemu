@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
 /* Copyright (c) 2021-2022, NVIDIA CORPORATION & AFFILIATES.
  */
-#ifndef _IOMMUFD_H
-#define _IOMMUFD_H
+#ifndef _UAPI_IOMMUFD_H
+#define _UAPI_IOMMUFD_H
 
 #include <linux/types.h>
 #include <linux/ioctl.h>
@@ -50,6 +50,7 @@ enum {
 	IOMMUFD_CMD_HWPT_SET_DIRTY_TRACKING,
 	IOMMUFD_CMD_HWPT_GET_DIRTY_BITMAP,
 	IOMMUFD_CMD_HWPT_INVALIDATE,
+	IOMMUFD_CMD_FAULT_ALLOC,
 };
 
 /**
@@ -356,18 +357,13 @@ struct iommu_vfio_ioas {
  *                                the parent HWPT in a nesting configuration.
  * @IOMMU_HWPT_ALLOC_DIRTY_TRACKING: Dirty tracking support for device IOMMU is
  *                                   enforced on device attachment
- * @IOMMU_HWPT_ALLOC_IOPF_CAPABLE: User is capable of handling IO page faults.
- *                                 On successful return, user can retrieve
- *                                 faults by reading the @out_fault_fd and
- *                                 respond the faults by writing it. The fault
- *                                 data is encoded in the format defined by
- *                                 iommu_hwpt_pgfault. The response data format
- *                                 is defined by iommu_hwpt_page_response
+ * @IOMMU_HWPT_FAULT_ID_VALID: The fault_id field of hwpt allocation data is
+ *                             valid.
  */
 enum iommufd_hwpt_alloc_flags {
 	IOMMU_HWPT_ALLOC_NEST_PARENT = 1 << 0,
 	IOMMU_HWPT_ALLOC_DIRTY_TRACKING = 1 << 1,
-	IOMMU_HWPT_ALLOC_IOPF_CAPABLE = 1 << 2,
+	IOMMU_HWPT_FAULT_ID_VALID = 1 << 2,
 };
 
 /**
@@ -438,6 +434,8 @@ enum iommu_hwpt_data_type {
  * @__reserved: Must be 0
  * @data_type: One of enum iommu_hwpt_data_type
  * @data_len: Length of the type specific data
+ * @fault_id: The ID of IOMMUFD_FAULT object. Valid only if flags field of
+ *            IOMMU_HWPT_FAULT_ID_VALID is set.
  * @data_uptr: User pointer to the type specific data
  *
  * Explicitly allocate a hardware page table object. This is the same object
@@ -468,8 +466,8 @@ struct iommu_hwpt_alloc {
 	__u32 __reserved;
 	__u32 data_type;
 	__u32 data_len;
+	__u32 fault_id;
 	__aligned_u64 data_uptr;
-	__u32 out_fault_fd;
 };
 #define IOMMU_HWPT_ALLOC _IO(IOMMUFD_TYPE, IOMMUFD_CMD_HWPT_ALLOC)
 
@@ -520,6 +518,14 @@ struct iommu_hw_info_vtd {
  *
  * User space should read the underlying ARM SMMUv3 hardware information for
  * the list of supported features.
+ *
+ * Note that these values reflect the raw HW capability, without any insight if
+ * any required kernel driver support is present. Bits may be set indicating the
+ * HW has functionality that is lacking kernel software support, such as BTM. If
+ * a VMM is using this information to construct emulated copies of these
+ * registers it should only forward bits that it knows it can support.
+ *
+ * In future, presence of required kernel support will be indicated in flags.
  */
 struct iommu_hw_info_arm_smmuv3 {
 	__u32 flags;
@@ -671,12 +677,20 @@ struct iommu_hwpt_get_dirty_bitmap {
 					IOMMUFD_CMD_HWPT_GET_DIRTY_BITMAP)
 
 /**
+ * enum iommu_hwpt_invalidate_data_type - IOMMU HWPT Cache Invalidation
+ *                                        Data Type
+ * @IOMMU_HWPT_INVALIDATE_DATA_VTD_S1: Invalidation data for VTD_S1
+ */
+enum iommu_hwpt_invalidate_data_type {
+	IOMMU_HWPT_INVALIDATE_DATA_VTD_S1,
+};
+
+/**
  * enum iommu_hwpt_vtd_s1_invalidate_flags - Flags for Intel VT-d
  *                                           stage-1 cache invalidation
- * @IOMMU_VTD_INV_FLAGS_LEAF: The LEAF flag indicates whether only the
- *                            leaf PTE caching needs to be invalidated
- *                            and other paging structure caches can be
- *                            preserved.
+ * @IOMMU_VTD_INV_FLAGS_LEAF: Indicates whether the invalidation applies
+ *                            to all-levels page structure cache or just
+ *                            the leaf PTE cache.
  */
 enum iommu_hwpt_vtd_s1_invalidate_flags {
 	IOMMU_VTD_INV_FLAGS_LEAF = 1 << 0,
@@ -684,9 +698,9 @@ enum iommu_hwpt_vtd_s1_invalidate_flags {
 
 /**
  * struct iommu_hwpt_vtd_s1_invalidate - Intel VT-d cache invalidation
- *                                       (IOMMU_HWPT_DATA_VTD_S1)
- * @addr: The start address of the addresses to be invalidated. It needs
- *        to be 4KB aligned.
+ *                                       (IOMMU_HWPT_INVALIDATE_DATA_VTD_S1)
+ * @addr: The start address of the range to be invalidated. It needs to
+ *        be 4KB aligned.
  * @npages: Number of contiguous 4K pages to be invalidated.
  * @flags: Combination of enum iommu_hwpt_vtd_s1_invalidate_flags
  * @__reserved: Must be 0
@@ -696,8 +710,9 @@ enum iommu_hwpt_vtd_s1_invalidate_flags {
  * tell the impacted cache scope after modifying the stage-1 page table.
  *
  * Invalidating all the caches related to the page table by setting @addr
- * to be 0 and @npages to be __aligned_u64(-1). This includes the
- * corresponding device-TLB if ATS is enabled on the attached devices.
+ * to be 0 and @npages to be U64_MAX.
+ *
+ * The device TLB will be invalidated automatically if ATS is enabled.
  */
 struct iommu_hwpt_vtd_s1_invalidate {
 	__aligned_u64 addr;
@@ -729,98 +744,118 @@ struct iommu_hwpt_arm_smmuv3_invalidate {
 /**
  * struct iommu_hwpt_invalidate - ioctl(IOMMU_HWPT_INVALIDATE)
  * @size: sizeof(struct iommu_hwpt_invalidate)
- * @hwpt_id: HWPT ID of a nested HWPT for cache invalidation
- * @reqs_uptr: User pointer to an array having @req_num of cache invalidation
- *             requests. The request entries in the array are of fixed width
- *             @req_len, and contain a user data structure for invalidation
- *             request specific to the given hardware page table.
- * @req_type: One of enum iommu_hwpt_data_type, defining the data type of all
- *            the entries in the invalidation request array. It should suit
- *            with the data_type passed per the allocation of the hwpt pointed
- *            by @hwpt_id.
- * @req_len: Length (in bytes) of a request entry in the request array
- * @req_num: Input the number of cache invalidation requests in the array.
- *           Output the number of requests successfully handled by kernel.
- * @out_driver_error_code: Report a driver speicifc error code upon failure.
- *                         It's optional, driver has a choice to fill it or
- *                         not.
+ * @hwpt_id: ID of a nested HWPT for cache invalidation
+ * @data_uptr: User pointer to an array of driver-specific cache invalidation
+ *             data.
+ * @data_type: One of enum iommu_hwpt_invalidate_data_type, defining the data
+ *             type of all the entries in the invalidation request array. It
+ *             should be a type supported by the hwpt pointed by @hwpt_id.
+ * @entry_len: Length (in bytes) of a request entry in the request array
+ * @entry_num: Input the number of cache invalidation requests in the array.
+ *             Output the number of requests successfully handled by kernel.
+ * @__reserved: Must be 0.
  *
  * Invalidate the iommu cache for user-managed page table. Modifications on a
  * user-managed page table should be followed by this operation to sync cache.
  * Each ioctl can support one or more cache invalidation requests in the array
- * that has a total size of @req_len * @req_num.
+ * that has a total size of @entry_len * @entry_num.
+ *
+ * An empty invalidation request array by setting @entry_num==0 is allowed, and
+ * @entry_len and @data_uptr would be ignored in this case. This can be used to
+ * check if the given @data_type is supported or not by kernel.
  */
 struct iommu_hwpt_invalidate {
 	__u32 size;
 	__u32 hwpt_id;
-	__aligned_u64 reqs_uptr;
-	__u32 req_type;
-	__u32 req_len;
-	__u32 req_num;
-	__u32 out_driver_error_code;
+	__aligned_u64 data_uptr;
+	__u32 data_type;
+	__u32 entry_len;
+	__u32 entry_num;
+	__u32 __reserved;
+};
+#define IOMMU_HWPT_INVALIDATE _IO(IOMMUFD_TYPE, IOMMUFD_CMD_HWPT_INVALIDATE)
+
+/**
+ * enum iommu_hwpt_pgfault_flags - flags for struct iommu_hwpt_pgfault
+ * @IOMMU_PGFAULT_FLAGS_PASID_VALID: The pasid field of the fault data is
+ *                                   valid.
+ * @IOMMU_PGFAULT_FLAGS_LAST_PAGE: It's the last fault of a fault group.
+ */
+enum iommu_hwpt_pgfault_flags {
+	IOMMU_PGFAULT_FLAGS_PASID_VALID		= (1 << 0),
+	IOMMU_PGFAULT_FLAGS_LAST_PAGE		= (1 << 1),
+};
+
+/**
+ * enum iommu_hwpt_pgfault_perm - perm bits for struct iommu_hwpt_pgfault
+ * @IOMMU_PGFAULT_PERM_READ: request for read permission
+ * @IOMMU_PGFAULT_PERM_WRITE: request for write permission
+ * @IOMMU_PGFAULT_PERM_EXEC: request for execute permission
+ * @IOMMU_PGFAULT_PERM_PRIV: request for privileged permission
+ */
+enum iommu_hwpt_pgfault_perm {
+	IOMMU_PGFAULT_PERM_READ			= (1 << 0),
+	IOMMU_PGFAULT_PERM_WRITE		= (1 << 1),
+	IOMMU_PGFAULT_PERM_EXEC			= (1 << 2),
+	IOMMU_PGFAULT_PERM_PRIV			= (1 << 3),
 };
 
 /**
  * struct iommu_hwpt_pgfault - iommu page fault data
  * @size: sizeof(struct iommu_hwpt_pgfault)
- * @flags: Combination of IOMMU_PGFAULT_FLAGS_ flags.
- *  - PASID_VALID: @pasid field is valid
- *  - LAST_PAGE: the last page fault in a group
- *  - PRIV_DATA: @private_data field is valid
- *  - RESP_NEEDS_PASID: the page response must have the same
- *                      PASID value as the page request.
+ * @flags: Combination of enum iommu_hwpt_pgfault_flags
  * @dev_id: id of the originated device
  * @pasid: Process Address Space ID
  * @grpid: Page Request Group Index
- * @perm: requested page permissions (IOMMU_PGFAULT_PERM_* values)
+ * @perm: Combination of enum iommu_hwpt_pgfault_perm
  * @addr: page address
- * @private_data: device-specific private information
  */
 struct iommu_hwpt_pgfault {
 	__u32 size;
 	__u32 flags;
-#define IOMMU_PGFAULT_FLAGS_PASID_VALID		(1 << 0)
-#define IOMMU_PGFAULT_FLAGS_LAST_PAGE		(1 << 1)
-#define IOMMU_PGFAULT_FLAGS_PRIV_DATA		(1 << 2)
-#define IOMMU_PGFAULT_FLAGS_RESP_NEEDS_PASID	(1 << 3)
 	__u32 dev_id;
 	__u32 pasid;
 	__u32 grpid;
 	__u32 perm;
-#define IOMMU_PGFAULT_PERM_READ			(1 << 0)
-#define IOMMU_PGFAULT_PERM_WRITE		(1 << 1)
-#define IOMMU_PGFAULT_PERM_EXEC			(1 << 2)
-#define IOMMU_PGFAULT_PERM_PRIV			(1 << 3)
 	__u64 addr;
-	__u64 private_data[2];
-};
-
-enum iommu_page_response_code {
-        IOMMU_PAGE_RESP_SUCCESS = 0,
-        IOMMU_PAGE_RESP_INVALID,
-        IOMMU_PAGE_RESP_FAILURE,
 };
 
 /**
- * struct iommu_hwpt_response - IOMMU page fault response
- * @size: sizeof(struct iommu_hwpt_response)
+ * struct iommu_hwpt_page_response - IOMMU page fault response
+ * @size: sizeof(struct iommu_hwpt_page_response)
  * @flags: Must be set to 0
- * @hwpt_id: hwpt ID of target hardware page table for the response
  * @dev_id: device ID of target device for the response
  * @pasid: Process Address Space ID
  * @grpid: Page Request Group Index
  * @code: response code. The supported codes include:
  *        0: Successful; 1: Response Failure; 2: Invalid Request.
+ * @addr: The fault address. Must match the addr field of the
+ *        last iommu_hwpt_pgfault of a reported iopf group.
  */
 struct iommu_hwpt_page_response {
 	__u32 size;
 	__u32 flags;
-	__u32 hwpt_id;
 	__u32 dev_id;
 	__u32 pasid;
 	__u32 grpid;
 	__u32 code;
+	__u64 addr;
 };
 
-#define IOMMU_HWPT_INVALIDATE _IO(IOMMUFD_TYPE, IOMMUFD_CMD_HWPT_INVALIDATE)
+/**
+ * struct iommu_fault_alloc - ioctl(IOMMU_FAULT_ALLOC)
+ * @size: sizeof(struct iommu_fault_alloc)
+ * @flags: Must be 0
+ * @out_fault_id: The ID of the new FAULT
+ * @out_fault_fd: The fd of the new FAULT
+ *
+ * Explicitly allocate a fault handling object.
+ */
+struct iommu_fault_alloc {
+	__u32 size;
+	__u32 flags;
+	__u32 out_fault_id;
+	__u32 out_fault_fd;
+};
+#define IOMMU_FAULT_ALLOC _IO(IOMMUFD_TYPE, IOMMUFD_CMD_FAULT_ALLOC)
 #endif

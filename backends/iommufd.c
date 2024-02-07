@@ -241,15 +241,27 @@ int iommufd_backend_alloc_hwpt(IOMMUFDBackend *be, uint32_t dev_id,
         .__reserved = 0,
     };
 
+    struct iommu_fault_alloc cmd = {
+         .size = sizeof(cmd),
+    };
+
+    ret = ioctl(fd, IOMMU_FAULT_ALLOC, &cmd);
+    if (ret) {
+        ret = -errno;
+        error_report("IOMMU_FAULT_ALLOC failed: %m");
+    } else {
+	alloc_hwpt.fault_id = cmd.out_fault_id;
+        if (out_fault_fd) {
+            *out_fault_fd = cmd.out_fault_fd;
+        }
+    }
+
     ret = ioctl(fd, IOMMU_HWPT_ALLOC, &alloc_hwpt);
     if (ret) {
         ret = -errno;
         error_report("IOMMU_HWPT_ALLOC failed: %m");
     } else {
         *out_hwpt = alloc_hwpt.out_hwpt_id;
-        if (out_fault_fd) {
-            *out_fault_fd = alloc_hwpt.out_fault_fd;
-        }
     }
 
     trace_iommufd_backend_alloc_hwpt(fd, dev_id, pt_id, flags, data_type,
@@ -266,22 +278,22 @@ int iommufd_backend_invalidate_cache(IOMMUFDBackend *be, uint32_t hwpt_id,
     struct iommu_hwpt_invalidate cache = {
         .size = sizeof(cache),
         .hwpt_id = hwpt_id,
-        .req_type = req_type,
-        .req_len = req_len,
-        .reqs_uptr = (uint64_t)reqs_ptr,
+        .data_type = req_type,
+        .entry_len = req_len,
+        .data_uptr = (uint64_t)reqs_ptr,
     };
 
-    cache.req_num = *req_num;
+    cache.entry_num = *req_num;
     ret = ioctl(fd, IOMMU_HWPT_INVALIDATE, &cache);
 
     trace_iommufd_backend_invalidate_cache(fd, hwpt_id, req_type, req_len,
-                                           *req_num, cache.req_num,
+                                           *req_num, cache.entry_num,
                                            (uint64_t)reqs_ptr, ret);
     if (ret) {
         ret = -errno;
         error_report("IOMMU_HWPT_INVALIDATE failed: %s", strerror(errno));
     } else {
-        *req_num = cache.req_num;
+        *req_num = cache.entry_num;
     }
 
     return ret;

@@ -808,7 +808,7 @@ int smmu_iommu_install_nested_ste(SMMUState *s, SMMUDevice *sdev,
 
     ret = iommufd_backend_alloc_hwpt(idev->iommufd, idev->dev_id,
                                      sdev->s2_hwpt->hwpt_id,
-                                     IOMMU_HWPT_ALLOC_IOPF_CAPABLE,
+                                     IOMMU_HWPT_FAULT_ID_VALID,
                                      data_type, data_len, data, &hwpt->hwpt_id,
                                      &hwpt->out_fault_fd);
     if (ret) {
