@@ -1725,7 +1725,8 @@ static void create_pcie(VirtMachineState *vms)
     }
 
     pci = PCI_HOST_BRIDGE(dev);
-    pci->bypass_iommu = vms->default_bus_bypass_iommu;
+    /* Default bus used by emulated devices does not go through nested SMMUs */
+    pci->bypass_iommu = vms->default_bus_bypass_iommu || vms->num_nested_smmus;
     vms->bus = pci->bus;
     if (vms->bus) {
         pci_init_nic_devices(pci->bus, mc->default_nic);
