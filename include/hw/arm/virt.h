@@ -62,6 +62,7 @@ enum {
     VIRT_GIC_ITS,
     VIRT_GIC_REDIST,
     VIRT_SMMU,
+    VIRT_NESTED_SMMU,
     VIRT_UART0,
     VIRT_MMIO,
     VIRT_RTC,
@@ -140,6 +141,8 @@ struct VirtMachineClass {
 typedef struct VirtNestedSmmu {
     int index;
     char *smmu_node;
+    PCIBus *pci_bus;
+    int reserved_bus_nums;
     QLIST_ENTRY(VirtNestedSmmu) next;
 } VirtNestedSmmu;
 
@@ -178,6 +181,7 @@ struct VirtMachineState {
     uint32_t gic_phandle;
     uint32_t msi_phandle;
     uint32_t iommu_phandle;
+    uint32_t *nested_smmu_phandle;
     int psci_conduit;
     hwaddr highest_gpa;
     DeviceState *gic;
@@ -226,6 +230,19 @@ static inline bool virt_has_smmuv3(const VirtMachineState *vms)
 {
     return vms->iommu == VIRT_IOMMU_SMMUV3 ||
            vms->iommu == VIRT_IOMMU_NESTED_SMMUV3;
+}
+
+static inline VirtNestedSmmu *
+find_nested_smmu_by_index(VirtMachineState *vms, int index)
+{
+    VirtNestedSmmu *nested_smmu;
+
+    QLIST_FOREACH(nested_smmu, &vms->nested_smmu_list, next) {
+        if (nested_smmu->index == index) {
+            return nested_smmu;
+        }
+    }
+    return NULL;
 }
 
 #endif /* QEMU_ARM_VIRT_H */

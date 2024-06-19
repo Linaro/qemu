@@ -55,6 +55,7 @@
 #include "qemu/bitops.h"
 #include "qemu/error-report.h"
 #include "qemu/module.h"
+#include "hw/pci/pci_bus.h"
 #include "hw/pci-host/gpex.h"
 #include "hw/virtio/virtio-pci.h"
 #include "hw/core/sysbus-fdt.h"
@@ -83,6 +84,7 @@
 #include "hw/virtio/virtio-md-pci.h"
 #include "hw/virtio/virtio-iommu.h"
 #include "hw/char/pl011.h"
+#include "qemu/config-file.h"
 #include "qemu/guest-random.h"
 
 static GlobalProperty arm_virt_compat[] = {
@@ -181,6 +183,7 @@ static const MemMapEntry base_memmap[] = {
     [VIRT_PVTIME] =             { 0x090a0000, 0x00010000 },
     [VIRT_SECURE_GPIO] =        { 0x090b0000, 0x00001000 },
     [VIRT_MMIO] =               { 0x0a000000, 0x00000200 },
+    [VIRT_NESTED_SMMU] =        { 0x0b000000, 0x01000000 },
     /* ...repeating for a total of NUM_VIRTIO_TRANSPORTS, each of that size */
     [VIRT_PLATFORM_BUS] =       { 0x0c000000, 0x02000000 },
     [VIRT_SECURE_MEM] =         { 0x0e000000, 0x01000000 },
@@ -225,7 +228,8 @@ static const int a15irqmap[] = {
     [VIRT_MMIO] = 16, /* ...to 16 + NUM_VIRTIO_TRANSPORTS - 1 */
     [VIRT_GIC_V2M] = 48, /* ...to 48 + NUM_GICV2M_SPIS - 1 */
     [VIRT_SMMU] = 74,    /* ...to 74 + NUM_SMMU_IRQS - 1 */
-    [VIRT_PLATFORM_BUS] = 112, /* ...to 112 + PLATFORM_BUS_NUM_IRQS -1 */
+    [VIRT_PLATFORM_BUS] = 112, /* ...to 112 + PLATFORM_BUS_NUM_IRQS -1 (179) */
+    [VIRT_NESTED_SMMU] = 200, /* Keep it at the end of list */
 };
 
 static void create_randomness(MachineState *ms, const char *node)
@@ -1404,21 +1408,19 @@ static void create_pcie_irq_map(const MachineState *ms,
                            0x7           /* PCI irq */);
 }
 
-static void create_smmu(const VirtMachineState *vms,
-                        PCIBus *bus)
+static DeviceState *_create_smmu(const VirtMachineState *vms, PCIBus *bus,
+                                 hwaddr base, hwaddr size, int irq,
+                                 uint32_t smmu_phandle)
 {
     char *node;
     const char compat[] = "arm,smmu-v3";
-    int irq =  vms->irqmap[VIRT_SMMU];
     int i;
-    hwaddr base = vms->memmap[VIRT_SMMU].base;
-    hwaddr size = vms->memmap[VIRT_SMMU].size;
     const char irq_names[] = "eventq\0priq\0cmdq-sync\0gerror";
     DeviceState *dev;
     MachineState *ms = MACHINE(vms);
 
-    if (!virt_has_smmuv3(vms) || !vms->iommu_phandle) {
-        return;
+    if (!virt_has_smmuv3(vms) || !smmu_phandle) {
+        return NULL;
     }
 
     dev = qdev_new(TYPE_ARM_SMMUV3);
@@ -1453,8 +1455,31 @@ static void create_smmu(const VirtMachineState *vms,
 
     qemu_fdt_setprop_cell(ms->fdt, node, "#iommu-cells", 1);
 
-    qemu_fdt_setprop_cell(ms->fdt, node, "phandle", vms->iommu_phandle);
+    qemu_fdt_setprop_cell(ms->fdt, node, "phandle", smmu_phandle);
     g_free(node);
+
+    return dev;
+}
+
+static DeviceState *create_smmu(const VirtMachineState *vms, PCIBus *bus)
+{
+    hwaddr base = vms->memmap[VIRT_SMMU].base;
+    hwaddr size = vms->memmap[VIRT_SMMU].size;
+    int irq = vms->irqmap[VIRT_SMMU];
+
+    return _create_smmu(vms, bus, base, size, irq, vms->iommu_phandle);
+}
+
+static DeviceState *create_nested_smmu(const VirtMachineState *vms, PCIBus *bus,
+                                       int i)
+{
+    hwaddr base = vms->memmap[VIRT_NESTED_SMMU].base + i * SMMU_IO_LEN;
+    int irq = vms->irqmap[VIRT_NESTED_SMMU] + i * NUM_SMMU_IRQS;
+    hwaddr size = SMMU_IO_LEN;
+    DeviceState *dev;
+
+    dev = _create_smmu(vms, bus, base, size, irq, vms->nested_smmu_phandle[i]);
+    return dev;
 }
 
 static void create_virtio_iommu_dt_bindings(VirtMachineState *vms)
@@ -1481,6 +1506,48 @@ static void create_virtio_iommu_dt_bindings(VirtMachineState *vms)
     qemu_fdt_setprop_cells(ms->fdt, vms->pciehb_nodename, "iommu-map",
                            0x0, vms->iommu_phandle, 0x0, bdf,
                            bdf + 1, vms->iommu_phandle, bdf + 1, 0xffff - bdf);
+}
+
+/*
+ * FIXME this is used to reverse for hotplug devices, yet it could result in a
+ * big waste of PCI bus numbners.
+ */
+#define MAX_DEV_PER_NESTED_SMMU (4)
+
+static PCIBus *create_pcie_expander_bridge(VirtMachineState *vms, uint8_t idx)
+{
+    /* Total = PXB + MAX_DEV_PER_NESTED_SMMU x (Rootport + device) */
+    const uint8_t total_bus_nums = 1 + MAX_DEV_PER_NESTED_SMMU * 2;
+    uint8_t bus_nr = PCI_BUS_MAX -
+                     (vms->num_nested_smmus - idx) * total_bus_nums;
+
+    VirtNestedSmmu *nested_smmu = find_nested_smmu_by_index(vms, idx);
+    char *name_pxb = g_strdup_printf("pxb_for_smmu.%d", idx);
+    PCIBus *bus = vms->bus;
+    DeviceState *dev;
+
+    /* Create an expander bridge */
+    dev = qdev_new("pxb-pcie");
+    if (!qdev_set_id(dev, name_pxb, &error_fatal)) {
+        return NULL;
+    }
+
+    qdev_prop_set_uint8(dev, "bus_nr", bus_nr);
+    qdev_prop_set_uint16(dev, "numa_node", 0);
+    qdev_realize_and_unref(dev, BUS(bus), &error_fatal);
+
+    /* Get the pxb bus */
+    QLIST_FOREACH(bus, &bus->child, sibling) {
+        if (pci_bus_num(bus) == bus_nr) {
+            break;
+        }
+    }
+    g_assert(bus && pci_bus_num(bus) == bus_nr);
+    nested_smmu->pci_bus = bus;
+    nested_smmu->reserved_bus_nums = total_bus_nums;
+
+    /* Return the pxb bus */
+    return bus;
 }
 
 static void create_pcie(VirtMachineState *vms)
@@ -1597,12 +1664,33 @@ static void create_pcie(VirtMachineState *vms)
     qemu_fdt_setprop_cell(ms->fdt, nodename, "#interrupt-cells", 1);
     create_pcie_irq_map(ms, vms->gic_phandle, irq, nodename);
 
-    if (vms->iommu) {
+    /* Build PCI Expander Bridge + Root Port from the top of PCI_BUS_MAX */
+    if (vms->num_nested_smmus) {
+        /* VIRT_NESTED_SMMU must hold all vSMMUs */
+        g_assert(vms->num_nested_smmus <=
+                 vms->memmap[VIRT_NESTED_SMMU].size / SMMU_IO_LEN);
+
+        vms->nested_smmu_phandle = g_new0(uint32_t, vms->num_nested_smmus);
+
+        for (i = 0; i < vms->num_nested_smmus; i++) {
+            DeviceState *smmu_dev;
+            PCIBus *pxb_bus;
+
+            pxb_bus = create_pcie_expander_bridge(vms, i);
+            g_assert(pxb_bus);
+
+            vms->nested_smmu_phandle[i] = qemu_fdt_alloc_phandle(ms->fdt);
+            smmu_dev = create_nested_smmu(vms, pxb_bus, i);
+            g_assert(smmu_dev);
+
+            qemu_fdt_setprop_cells(ms->fdt, nodename, "iommu-map", 0x0,
+                                   vms->nested_smmu_phandle[i], 0x0, 0x10000);
+        }
+    } else if (vms->iommu) {
         vms->iommu_phandle = qemu_fdt_alloc_phandle(ms->fdt);
 
         switch (vms->iommu) {
         case VIRT_IOMMU_SMMUV3:
-        case VIRT_IOMMU_NESTED_SMMUV3:
             create_smmu(vms, vms->bus);
             qemu_fdt_setprop_cells(ms->fdt, nodename, "iommu-map",
                                    0x0, vms->iommu_phandle, 0x0, 0x10000);
