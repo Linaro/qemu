@@ -2714,6 +2714,37 @@ static char *virt_get_iommu(Object *obj, Error **errp)
     }
 }
 
+static int virt_get_num_nested_smmus(VirtMachineState *vms, Error **errp)
+{
+    VirtNestedSmmu *nested_smmu;
+    struct dirent *dent;
+    DIR *dir = NULL;
+    int num = 0;
+
+    dir = opendir("/sys/class/iommu");
+    if (!dir) {
+        error_setg_errno(errp, errno, "couldn't open /sys/class/iommu");
+        return 0;
+    }
+
+    while ((dent = readdir(dir))) {
+        if (!strncmp(dent->d_name, "smmu3.0x", 7)) {
+            nested_smmu = g_new0(VirtNestedSmmu, 1);
+            nested_smmu->index = num;
+            nested_smmu->smmu_node = g_strdup(dent->d_name);
+            QLIST_INSERT_HEAD(&vms->nested_smmu_list, nested_smmu, next);
+            num++;
+        }
+    }
+
+    if (num == 0) {
+        error_setg_errno(errp, errno,
+                         "couldn't find any SMMUv3 HW to setup nesting");
+    }
+
+    return num;
+}
+
 static void virt_set_iommu(Object *obj, const char *value, Error **errp)
 {
     VirtMachineState *vms = VIRT_MACHINE(obj);
@@ -2722,6 +2753,7 @@ static void virt_set_iommu(Object *obj, const char *value, Error **errp)
         vms->iommu = VIRT_IOMMU_SMMUV3;
     } else if (!strcmp(value, "nested-smmuv3")) {
         vms->iommu = VIRT_IOMMU_NESTED_SMMUV3;
+        vms->num_nested_smmus = virt_get_num_nested_smmus(vms, errp);
     } else if (!strcmp(value, "none")) {
         vms->iommu = VIRT_IOMMU_NONE;
     } else {
@@ -3270,6 +3302,9 @@ static void virt_instance_init(Object *obj)
 
     /* The default root bus is attached to iommu by default */
     vms->default_bus_bypass_iommu = false;
+
+    /* Default disallows nested SMMU instantiation */
+    vms->num_nested_smmus = 0;
 
     /* Default disallows RAS instantiation */
     vms->ras = false;
