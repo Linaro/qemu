@@ -295,17 +295,35 @@ static void
 build_iort(GArray *table_data, BIOSLinker *linker, VirtMachineState *vms)
 {
     int i, nb_nodes, rc_mapping_count;
-    size_t node_size, smmu_offset = 0;
+    size_t node_size, *smmu_offset;
     AcpiIortIdMapping *idmap;
     uint32_t id = 0;
     GArray *smmu_idmaps = g_array_new(false, true, sizeof(AcpiIortIdMapping));
     GArray *its_idmaps = g_array_new(false, true, sizeof(AcpiIortIdMapping));
     AcpiIortIdMappingVM idmap_vm = { .vms = vms, .smmu_idmaps = smmu_idmaps, };
+    int irq_offset = NUM_SMMU_IRQS;
+    hwaddr offset = SMMU_IO_LEN;
+    int irq, num_smmus = 0;
+    hwaddr base;
 
     AcpiTable table = { .sig = "IORT", .rev = 3, .oem_id = vms->oem_id,
                         .oem_table_id = vms->oem_table_id };
     /* Table 2 The IORT */
     acpi_table_begin(&table, table_data);
+
+    if (vms->num_nested_smmus) {
+        irq = vms->irqmap[VIRT_NESTED_SMMU] + ARM_SPI_BASE;
+        base = vms->memmap[VIRT_NESTED_SMMU].base;
+        num_smmus = vms->num_nested_smmus;
+    } else if (virt_has_smmuv3(vms)) {
+        irq = vms->irqmap[VIRT_SMMU] + ARM_SPI_BASE;
+        base = vms->memmap[VIRT_SMMU].base;
+        num_smmus = 1;
+    }
+    smmu_offset = g_new0(size_t, num_smmus);
+
+    nb_nodes = 2; /* RC, ITS */
+    nb_nodes += num_smmus; /* SMMU nodes */
 
     if (virt_has_smmuv3(vms)) {
         AcpiIortIdMapping next_range = {0};
@@ -337,10 +355,8 @@ build_iort(GArray *table_data, BIOSLinker *linker, VirtMachineState *vms)
             g_array_append_val(its_idmaps, next_range);
         }
 
-        nb_nodes = 3; /* RC, ITS, SMMUv3 */
         rc_mapping_count = smmu_idmaps->len + its_idmaps->len;
     } else {
-        nb_nodes = 2; /* RC, ITS */
         rc_mapping_count = 1;
     }
     /* Number of IORT Nodes */
@@ -362,10 +378,9 @@ build_iort(GArray *table_data, BIOSLinker *linker, VirtMachineState *vms)
     /* GIC ITS Identifier Array */
     build_append_int_noprefix(table_data, 0 /* MADT translation_id */, 4);
 
-    if (virt_has_smmuv3(vms)) {
-        int irq =  vms->irqmap[VIRT_SMMU] + ARM_SPI_BASE;
+    for (i = 0; i < num_smmus; i++) {
+        smmu_offset[i] = table_data->len - table.table_offset;
 
-        smmu_offset = table_data->len - table.table_offset;
         /* Table 9 SMMUv3 Format */
         build_append_int_noprefix(table_data, 4 /* SMMUv3 */, 1); /* Type */
         node_size =  SMMU_V3_ENTRY_SIZE + ID_MAPPING_ENTRY_SIZE;
@@ -376,7 +391,7 @@ build_iort(GArray *table_data, BIOSLinker *linker, VirtMachineState *vms)
         /* Reference to ID Array */
         build_append_int_noprefix(table_data, SMMU_V3_ENTRY_SIZE, 4);
         /* Base address */
-        build_append_int_noprefix(table_data, vms->memmap[VIRT_SMMU].base, 8);
+        build_append_int_noprefix(table_data, base + i * offset, 8);
         /* Flags */
         build_append_int_noprefix(table_data, 1 /* COHACC Override */, 4);
         build_append_int_noprefix(table_data, 0, 4); /* Reserved */
@@ -387,6 +402,7 @@ build_iort(GArray *table_data, BIOSLinker *linker, VirtMachineState *vms)
         build_append_int_noprefix(table_data, irq + 1, 4); /* PRI */
         build_append_int_noprefix(table_data, irq + 3, 4); /* GERR */
         build_append_int_noprefix(table_data, irq + 2, 4); /* Sync */
+        irq += irq_offset;
         build_append_int_noprefix(table_data, 0, 4); /* Proximity domain */
         /* DeviceID mapping index (ignored since interrupts are GSIV based) */
         build_append_int_noprefix(table_data, 0, 4);
@@ -433,7 +449,7 @@ build_iort(GArray *table_data, BIOSLinker *linker, VirtMachineState *vms)
             range = &g_array_index(smmu_idmaps, AcpiIortIdMapping, i);
             /* output IORT node is the smmuv3 node */
             build_iort_id_mapping(table_data, range->input_base,
-                                  range->id_count, smmu_offset);
+                                  range->id_count, smmu_offset[i]);
         }
 
         /* bypassed RIDs connect to ITS group node directly: RC -> ITS */
