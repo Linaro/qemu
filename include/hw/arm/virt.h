@@ -245,4 +245,17 @@ find_nested_smmu_by_index(VirtMachineState *vms, int index)
     return NULL;
 }
 
+static inline VirtNestedSmmu *
+find_nested_smmu_by_sysfs(VirtMachineState *vms, char *node)
+{
+    VirtNestedSmmu *nested_smmu;
+
+    QLIST_FOREACH(nested_smmu, &vms->nested_smmu_list, next) {
+        if (!strncmp(nested_smmu->smmu_node, node, strlen(node))) {
+            return nested_smmu;
+        }
+    }
+    return NULL;
+}
+
 #endif /* QEMU_ARM_VIRT_H */

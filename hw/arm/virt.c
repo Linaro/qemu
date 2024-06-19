@@ -38,6 +38,7 @@
 #include "hw/arm/primecell.h"
 #include "hw/arm/virt.h"
 #include "hw/block/flash.h"
+#include "hw/vfio/pci.h"
 #include "hw/vfio/vfio-calxeda-xgmac.h"
 #include "hw/vfio/vfio-amd-xgbe.h"
 #include "hw/display/ramfb.h"
@@ -1508,6 +1509,112 @@ static void create_virtio_iommu_dt_bindings(VirtMachineState *vms)
                            bdf + 1, vms->iommu_phandle, bdf + 1, 0xffff - bdf);
 }
 
+static char *create_new_pcie_port(VirtNestedSmmu *nested_smmu, Error **errp)
+{
+    uint32_t port_nr = nested_smmu->pci_bus->qbus.num_children;
+    uint32_t chassis_nr = UINT8_MAX - nested_smmu->index;
+    uint32_t bus_nr = pci_bus_num(nested_smmu->pci_bus);
+    DeviceState *dev;
+    char *name_port;
+
+    /* Create a root port */
+    dev = qdev_new("pcie-root-port");
+    name_port = g_strdup_printf("smmu_bus0x%x_port%d", bus_nr, port_nr);
+
+    if (!qdev_set_id(dev, name_port, &error_fatal)) {
+        /* FIXME retry with a different port num? */
+        error_setg(errp, "Could not set pcie-root-port ID %s", name_port);
+        g_free(name_port);
+        g_free(dev);
+        return NULL;
+    }
+    qdev_prop_set_uint32(dev, "chassis", chassis_nr);
+    qdev_prop_set_uint32(dev, "slot", port_nr);
+    qdev_prop_set_uint64(dev, "io-reserve", 0);
+    qdev_realize_and_unref(dev, BUS(nested_smmu->pci_bus), &error_fatal);
+    return name_port;
+}
+
+static int assign_nested_smmu(void *opaque, QemuOpts *opts, Error **errp)
+{
+    VirtMachineState *vms = (VirtMachineState *)opaque;
+    const char *sysfsdev = qemu_opt_get(opts, "sysfsdev");
+    const char *iommufd = qemu_opt_get(opts, "iommufd");
+    const char *driver = qemu_opt_get(opts, "driver");
+    const char *host = qemu_opt_get(opts, "host");
+    const char *bus = qemu_opt_get(opts, "bus");
+    VirtNestedSmmu *nested_smmu;
+    char *link_iommu;
+    char *dir_iommu;
+    char *smmu_node;
+    char *name_port;
+    int ret = 0;
+
+    if (!iommufd || !driver) {
+        return 0;
+    }
+    if (!sysfsdev && !host) {
+        return 0;
+    }
+    if (strncmp(driver, TYPE_VFIO_PCI, strlen(TYPE_VFIO_PCI))) {
+        return 0;
+    }
+    /* If the device wants to attach to the default bus, do not reassign it */
+    if (bus && !strncmp(bus, "pcie.0", strlen(bus))) {
+        return 0;
+    }
+
+    if (sysfsdev) {
+        link_iommu = g_strdup_printf("%s/iommu", sysfsdev);
+    } else {
+        link_iommu = g_strdup_printf("/sys/bus/pci/devices/%s/iommu", host);
+    }
+
+    dir_iommu = realpath(link_iommu, NULL);
+    if (!dir_iommu) {
+        error_setg(errp, "Could not get the real path for iommu link: %s",
+                   link_iommu);
+        ret = -EINVAL;
+        goto free_link;
+    }
+
+    smmu_node = g_path_get_basename(dir_iommu);
+    if (!smmu_node) {
+        error_setg(errp, "Could not get SMMU node name for iommu at: %s",
+                   dir_iommu);
+        ret = -EINVAL;
+        goto free_dir;
+    }
+
+    nested_smmu = find_nested_smmu_by_sysfs(vms, smmu_node);
+    if (!nested_smmu) {
+        error_setg(errp, "Could not find any detected SMMU matching node: %s",
+                   smmu_node);
+        ret = -EINVAL;
+        goto free_node;
+    }
+
+    name_port = create_new_pcie_port(nested_smmu, errp);
+    if (!name_port) {
+        ret = -EBUSY;
+        goto free_node;
+    }
+
+    qemu_opt_set(opts, "bus", name_port, &error_fatal);
+    if (bus) {
+        error_report("overriding PCI bus %s to %s for device %s [%s]",
+                     bus, name_port, host, sysfsdev);
+    }
+
+free_node:
+    free(smmu_node);
+free_dir:
+    free(dir_iommu);
+free_link:
+    free(link_iommu);
+    return ret;
+}
+
 /*
  * FIXME this is used to reverse for hotplug devices, yet it could result in a
  * big waste of PCI bus numbners.
@@ -1686,6 +1793,9 @@ static void create_pcie(VirtMachineState *vms)
             qemu_fdt_setprop_cells(ms->fdt, nodename, "iommu-map", 0x0,
                                    vms->nested_smmu_phandle[i], 0x0, 0x10000);
         }
+
+        qemu_opts_foreach(qemu_find_opts("device"),
+                          assign_nested_smmu, vms, &error_fatal);
     } else if (vms->iommu) {
         vms->iommu_phandle = qemu_fdt_alloc_phandle(ms->fdt);
 
