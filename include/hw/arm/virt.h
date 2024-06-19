@@ -258,4 +258,17 @@ find_nested_smmu_by_sysfs(VirtMachineState *vms, char *node)
     return NULL;
 }
 
+static inline VirtNestedSmmu *
+find_nested_smmu_by_pci_bus(VirtMachineState *vms, PCIBus *pci_bus)
+{
+    VirtNestedSmmu *nested_smmu;
+
+    QLIST_FOREACH(nested_smmu, &vms->nested_smmu_list, next) {
+        if (nested_smmu->pci_bus == pci_bus) {
+            return nested_smmu;
+        }
+    }
+    return NULL;
+}
+
 #endif /* QEMU_ARM_VIRT_H */

@@ -228,6 +228,12 @@ static void build_iort_id_mapping(GArray *table_data, uint32_t input_base,
     build_append_int_noprefix(table_data, 0 /* Single mapping (disabled) */, 4);
 }
 
+struct AcpiIortIdMappingVM {
+    VirtMachineState *vms;
+    GArray *smmu_idmaps;
+};
+typedef struct AcpiIortIdMappingVM AcpiIortIdMappingVM;
+
 struct AcpiIortIdMapping {
     uint32_t input_base;
     uint32_t id_count;
@@ -238,21 +244,34 @@ typedef struct AcpiIortIdMapping AcpiIortIdMapping;
 static int
 iort_host_bridges(Object *obj, void *opaque)
 {
-    GArray *idmap_blob = opaque;
+    AcpiIortIdMappingVM *idmap_vm = opaque;
+    VirtMachineState *vms = idmap_vm->vms;
 
     if (object_dynamic_cast(obj, TYPE_PCI_HOST_BRIDGE)) {
         PCIBus *bus = PCI_HOST_BRIDGE(obj)->bus;
 
         if (bus && !pci_bus_bypass_iommu(bus)) {
+            VirtNestedSmmu *nested_smmu = find_nested_smmu_by_pci_bus(vms, bus);
             int min_bus, max_bus;
 
-            pci_bus_range(bus, &min_bus, &max_bus);
+            if (vms->iommu == VIRT_IOMMU_NESTED_SMMUV3) {
+                /* PCI host bridge hehind a nested SMMU has reserved buses */
+                if (nested_smmu) {
+                    min_bus = pci_bus_num(nested_smmu->pci_bus);
+                    max_bus = min_bus + nested_smmu->reserved_bus_nums - 1;
+                } else {
+                    /* Not connected to a nested SMMU */
+                    return 0;
+                }
+            } else {
+                pci_bus_range(bus, &min_bus, &max_bus);
+            }
 
             AcpiIortIdMapping idmap = {
                 .input_base = min_bus << 8,
                 .id_count = (max_bus - min_bus + 1) << 8,
             };
-            g_array_append_val(idmap_blob, idmap);
+            g_array_append_val(idmap_vm->smmu_idmaps, idmap);
         }
     }
 
@@ -281,6 +300,7 @@ build_iort(GArray *table_data, BIOSLinker *linker, VirtMachineState *vms)
     uint32_t id = 0;
     GArray *smmu_idmaps = g_array_new(false, true, sizeof(AcpiIortIdMapping));
     GArray *its_idmaps = g_array_new(false, true, sizeof(AcpiIortIdMapping));
+    AcpiIortIdMappingVM idmap_vm = { .vms = vms, .smmu_idmaps = smmu_idmaps, };
 
     AcpiTable table = { .sig = "IORT", .rev = 3, .oem_id = vms->oem_id,
                         .oem_table_id = vms->oem_table_id };
@@ -291,7 +311,7 @@ build_iort(GArray *table_data, BIOSLinker *linker, VirtMachineState *vms)
         AcpiIortIdMapping next_range = {0};
 
         object_child_foreach_recursive(object_get_root(),
-                                       iort_host_bridges, smmu_idmaps);
+                                       iort_host_bridges, &idmap_vm);
 
         /* Sort the smmu idmap by input_base */
         g_array_sort(smmu_idmaps, iort_idmap_compare);
