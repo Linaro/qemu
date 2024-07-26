@@ -1342,7 +1342,7 @@ static void smmuv3_config_ste(SMMUDevice *sdev, int sid)
         smmuv3_flush_config(sdev);
         return;
     }
-    iommu_config.sid = sid;
+    //iommu_config.sid = sid;
     iommu_config.ste[0] = (uint64_t)ste.word[0] | (uint64_t)ste.word[1] << 32;
     iommu_config.ste[1] = (uint64_t)ste.word[2] | (uint64_t)ste.word[3] << 32;
     /* V | S1FMT | S1CTXPTR | S1CDMAX */
@@ -1430,21 +1430,21 @@ static void smmuv3_notify_stall_resume(SMMUState *bs, uint32_t sid,
     SMMUDevice *sdev = smmu_find_sdev(bs, sid);
     PageRespEntry *msg;
     SMMUHwpt *hwpt;
-    IOMMUFDDevice *idev;
+    //IOMMUFDDevice *idev;
 
     if (!sdev) {
         return;
     }
 
     hwpt = sdev->hwpt;
-    idev = sdev->idev;
+    //idev = sdev->idev;
 
     msg = g_malloc0(sizeof(*msg));
-    msg->resp.size = sizeof(struct iommu_hwpt_page_response);
+    //msg->resp.size = sizeof(struct iommu_hwpt_page_response);
     //msg->resp.hwpt_id = hwpt->hwpt_id;
-    msg->resp.addr = addr;
-    msg->resp.dev_id = idev->dev_id;
-    msg->resp.grpid = stag;
+    //msg->resp.addr = addr;
+    //msg->resp.dev_id = idev->dev_id;
+    //msg->resp.grpid = stag;
     msg->resp.code = code;
 
     qemu_mutex_lock(&hwpt->fault_mutex);

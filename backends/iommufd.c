@@ -245,7 +245,7 @@ int iommufd_backend_alloc_hwpt(IOMMUFDBackend *be, uint32_t dev_id,
          .size = sizeof(cmd),
     };
 
-    ret = ioctl(fd, IOMMU_FAULT_ALLOC, &cmd);
+    ret = ioctl(fd, IOMMU_FAULT_QUEUE_ALLOC, &cmd);
     if (ret) {
         ret = -errno;
         error_report("IOMMU_FAULT_ALLOC failed: %m");
