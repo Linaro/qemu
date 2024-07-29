@@ -196,8 +196,10 @@ static int iommufd_cdev_attach_ioas_hwpt(VFIODevice *vbasedev, uint32_t id,
         .pt_id = id,
     };
 
+    printf("gzf %s \n", __func__);
     /* Attach device to an IOAS or hwpt within iommufd */
     ret = ioctl(vbasedev->fd, VFIO_DEVICE_ATTACH_IOMMUFD_PT, &attach_data);
+    printf("gzf %s ret=%d\n", __func__, ret);
     if (ret) {
         error_setg_errno(errp, errno,
                          "[iommufd=%d] error attach %s (%d) to id=%d",
@@ -641,6 +643,7 @@ static int vfio_iommufd_device_attach_hwpt(IOMMUFDDevice *idev,
     Error *err = NULL;
     int ret;
 
+    printf("gzf %s\n", __func__);
     ret = iommufd_cdev_attach_ioas_hwpt(vbasedev, hwpt_id, &err);
     if (err) {
         error_report_err(err);
