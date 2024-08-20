@@ -16,6 +16,7 @@
  * with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <poll.h>
 #include "qemu/osdep.h"
 #include "qemu/bitops.h"
 #include "hw/irq.h"
@@ -254,6 +255,59 @@ void smmuv3_record_event(SMMUv3State *s, SMMUEventInfo *info)
         smmuv3_trigger_irq(s, SMMU_IRQ_GERROR, R_GERROR_EVENTQ_ABT_ERR_MASK);
     }
     info->recorded = true;
+}
+
+static void *smmuv3_nested_event_thread(void *arg)
+{
+    struct pollfd pollfd = { }; //.events = POLLIN };
+    struct iommu_vevent_arm_smmuv3 *vevent;
+    struct iommufd_vevent_header *hdr;
+    SMMUViommu *viommu = arg;
+    SMMUState *s = viommu->smmu;
+    SMMUv3State *smmuv3 = ARM_SMMUV3(s);
+    MemTxResult r;
+    ssize_t readsz = sizeof(*hdr) + sizeof(*vevent);
+    ssize_t bytes;
+    Evt evt = {};
+    void *buf;
+    int ret;
+
+    if (!viommu->veventq) {
+        return NULL;
+    }
+    buf = g_malloc0(readsz);
+    pollfd.events = POLLIN;
+    pollfd.fd = viommu->veventq->veventq_fd;
+
+    while (1) {
+        ret = poll(&pollfd, 1, -1);
+        if (ret < 0) {
+            error_report("%s: poll failed: %d", __func__, ret);
+            goto out_free;
+        }
+
+        bytes = read(pollfd.fd, buf, readsz);
+        if (bytes <= 0) {
+            error_report("%s: read failed: %d", __func__, ret);
+            goto out_free;
+        }
+        hdr = buf;
+        vevent = buf + sizeof(*hdr);
+        if (hdr->flags & IOMMU_VEVENTQ_FLAG_OVERFLOW) {
+            error_report("%s: vEVENTQ overflow", __func__);
+            goto out_free;
+        }
+
+        memcpy(&evt, &vevent, sizeof(evt));
+        r = smmuv3_write_eventq(smmuv3, &evt);
+        if (r != MEMTX_OK) {
+            smmuv3_trigger_irq(smmuv3, SMMU_IRQ_GERROR,
+                               R_GERROR_EVENTQ_ABT_ERR_MASK);
+        }
+    }
+out_free:
+    g_free(buf);
+    return NULL;
 }
 
 static void smmuv3_nested_init_regs(SMMUv3State *s)
@@ -1810,6 +1864,28 @@ static int smmuv3_cmdq_consume(SMMUv3State *s)
     return 0;
 }
 
+static void smmu_realloc_veventq(SMMUState *bs, uint32_t log2size)
+{
+    SMMUViommu *viommu = bs->viommu;
+
+    if (!viommu)
+        return;
+    if (viommu->veventq) {
+        qemu_thread_join(&bs->event_thread_id);
+        iommufd_backend_free_id(viommu->iommufd, viommu->veventq->veventq_id);
+        g_free(viommu->veventq);
+    }
+    viommu->veventq = iommufd_viommu_alloc_eventq(viommu->core,
+                                                  IOMMU_VEVENTQ_TYPE_ARM_SMMUV3,
+                                                  1 << log2size);
+    if (!viommu->veventq) {
+        error_report("failed to allocate SMMUV3 veventq, errors will be ignored");
+    } else {
+        qemu_thread_create(&bs->event_thread_id, "irq/event",
+                           smmuv3_nested_event_thread, viommu, QEMU_THREAD_JOINABLE);
+    }
+}
+
 static MemTxResult smmu_writell(SMMUv3State *s, hwaddr offset,
                                uint64_t data, MemTxAttrs attrs)
 {
@@ -1833,6 +1909,7 @@ static MemTxResult smmu_writell(SMMUv3State *s, hwaddr offset,
         if (s->eventq.log2size > SMMU_EVENTQS) {
             s->eventq.log2size = SMMU_EVENTQS;
         }
+        smmu_realloc_veventq(ARM_SMMU(s), s->eventq.log2size);
         return MEMTX_OK;
     case A_EVENTQ_IRQ_CFG0:
         s->eventq_irq_cfg0 = data;
@@ -1930,6 +2007,7 @@ static MemTxResult smmu_writel(SMMUv3State *s, hwaddr offset,
         if (s->eventq.log2size > SMMU_EVENTQS) {
             s->eventq.log2size = SMMU_EVENTQS;
         }
+        smmu_realloc_veventq(ARM_SMMU(s), s->eventq.log2size);
         return MEMTX_OK;
     case A_EVENTQ_BASE + 4:
         s->eventq.base = deposit64(s->eventq.base, 32, 32, data);
