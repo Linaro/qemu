@@ -650,7 +650,13 @@ DeviceState *qdev_device_add_from_qdict(const QDict *opts,
             return NULL;
         }
     } else if (dc->bus_type != NULL) {
-        bus = qbus_find_recursive(sysbus_get_default(), NULL, dc->bus_type);
+        if (!strcmp(dc->bus_type, "PCI")) {
+            /* WAR start from pcie.0 first */
+            bus = qbus_find_recursive(sysbus_get_default(), "pcie.0", dc->bus_type);
+        }
+        if (!bus || qbus_is_full(bus)) {
+            bus = qbus_find_recursive(sysbus_get_default(), NULL, dc->bus_type);
+        }
         if (!bus || qbus_is_full(bus)) {
             error_setg(errp, "No '%s' bus found for device '%s'",
                        dc->bus_type, driver);
