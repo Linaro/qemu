@@ -26,6 +26,8 @@
  * @nesting: nesting page table support.
  *
  * @fs1gp: first stage(a.k.a, Stage-1) 1GB huge page support.
+ *
+ * @max_pasid_log2: the max pasid bits
  */
 typedef struct HostIOMMUDeviceCaps {
     uint32_t type;
@@ -33,6 +35,7 @@ typedef struct HostIOMMUDeviceCaps {
     bool nesting;
     bool fs1gp;
     uint32_t errata;
+    uint8_t max_pasid_log2;
 } HostIOMMUDeviceCaps;
 
 #define TYPE_HOST_IOMMU_DEVICE "host-iommu-device"
