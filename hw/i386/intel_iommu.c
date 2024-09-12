@@ -5999,10 +5999,21 @@ static AddressSpace *vtd_host_dma_iommu(PCIBus *bus, void *opaque, int devfn)
     return &vtd_as->as;
 }
 
+static bool vtd_pci_device_get_pasid_cap(PCIBus *bus,
+                                         void *opaque, int devfn)
+{
+    IntelIOMMUState *s = opaque;
+
+    assert(0 <= devfn && devfn < PCI_DEVFN_MAX);
+
+    return (s->ecap & VTD_ECAP_PASID);
+}
+
 static PCIIOMMUOps vtd_iommu_ops = {
     .get_address_space = vtd_host_dma_iommu,
     .set_iommu_device = vtd_dev_set_iommu_device,
     .unset_iommu_device = vtd_dev_unset_iommu_device,
+    .get_pasid_cap = vtd_pci_device_get_pasid_cap,
 };
 
 static bool vtd_decide_config(IntelIOMMUState *s, Error **errp)
