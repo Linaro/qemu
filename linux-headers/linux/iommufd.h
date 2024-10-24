@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
 /* Copyright (c) 2021-2022, NVIDIA CORPORATION & AFFILIATES.
  */
-#ifndef _IOMMUFD_H
-#define _IOMMUFD_H
+#ifndef _UAPI_IOMMUFD_H
+#define _UAPI_IOMMUFD_H
 
 #include <linux/ioctl.h>
 #include <linux/types.h>
@@ -588,9 +588,17 @@ enum iommu_hw_info_type {
  *                                   IOMMU_HWPT_GET_DIRTY_BITMAP
  *                                   IOMMU_HWPT_SET_DIRTY_TRACKING
  *
+ * @IOMMU_HW_CAP_PASID_EXEC: Execute Permission Supported, user ignores it
+ *                           when the struct iommu_hw_info::out_max_pasid_log2
+ *                           is zero.
+ * @IOMMU_HW_CAP_PASID_PRIV: Privileged Mode Supported, user ignores it
+ *                           when the struct iommu_hw_info::out_max_pasid_log2
+ *                           is zero.
  */
 enum iommufd_hw_capabilities {
 	IOMMU_HW_CAP_DIRTY_TRACKING = 1 << 0,
+	IOMMU_HW_CAP_PCI_PASID_EXEC = 1 << 1,
+	IOMMU_HW_CAP_PCI_PASID_PRIV = 1 << 2,
 };
 
 /**
@@ -606,6 +614,9 @@ enum iommufd_hw_capabilities {
  *                 iommu_hw_info_type.
  * @out_capabilities: Output the generic iommu capability info type as defined
  *                    in the enum iommu_hw_capabilities.
+ * @out_max_pasid_log2: Output the width of PASIDs. 0 means no PASID support.
+ *                      PCI devices turn to out_capabilities to check if the
+ *                      specific capabilities is supported or not.
  * @__reserved: Must be 0
  *
  * Query an iommu type specific hardware information data from an iommu behind
@@ -629,7 +640,8 @@ struct iommu_hw_info {
 	__u32 data_len;
 	__aligned_u64 data_uptr;
 	__u32 out_data_type;
-	__u32 __reserved;
+	__u8 out_max_pasid_log2;
+	__u8 __reserved[3];
 	__aligned_u64 out_capabilities;
 };
 #define IOMMU_GET_HW_INFO _IO(IOMMUFD_TYPE, IOMMUFD_CMD_GET_HW_INFO)
@@ -822,12 +834,6 @@ struct iommu_hwpt_invalidate {
 enum iommu_hwpt_pgfault_flags {
 	IOMMU_PGFAULT_FLAGS_PASID_VALID		= (1 << 0),
 	IOMMU_PGFAULT_FLAGS_LAST_PAGE		= (1 << 1),
-};
-
-enum iommu_page_response_code {
-        IOMMU_PAGE_RESP_SUCCESS = 0,
-        IOMMU_PAGE_RESP_INVALID,
-        IOMMU_PAGE_RESP_FAILURE,
 };
 
 /**
