@@ -1996,10 +1996,10 @@ static int smmuv3_cmdq_consume(SMMUv3State *s)
             uint32_t sid = CMD_SID(&cmd);
             uint16_t stag = CMD_RESUME_STAG(&cmd);
             uint8_t action = CMD_RESUME_AC(&cmd);
-            uint32_t code = IOMMU_PAGE_RESP_INVALID;
+            uint32_t code = IOMMUFD_PAGE_RESP_INVALID;
 
             if (action) {
-                code = IOMMU_PAGE_RESP_SUCCESS;
+                code = IOMMUFD_PAGE_RESP_SUCCESS;
             }
             smmuv3_notify_stall_resume(bs, sid, stag, code);
             break;
