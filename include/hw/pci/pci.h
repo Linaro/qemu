@@ -423,6 +423,18 @@ typedef struct PCIIOMMUOps {
      * @devfn: device and function number of the PCI device.
      */
     void (*unset_iommu_device)(PCIBus *bus, void *opaque, int devfn);
+
+    /**
+     * @get_pasid_cap: get pasid cap
+     *
+     * Optional callback.
+     *
+     * @bus: the #PCIBus of the PCI device.
+     *
+     * @opaque: the data passed to pci_setup_iommu().
+     *
+     * @devfn: device and function number of the PCI device.
+     */
     bool (*get_pasid_cap)(PCIBus *bus, void *opaque, int devfn);
 } PCIIOMMUOps;
 
