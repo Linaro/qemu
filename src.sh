@@ -1,0 +1,14 @@
+build/qemu-system-aarch64 -object iommufd,id=iommufd0 \
+-machine hmat=on \
+-machine virt,accel=kvm,gic-version=3,ras=on \
+-cpu host -smp cpus=61 -m size=16G,slots=4,maxmem=256G -nographic \
+-object memory-backend-ram,size=8G,id=m0 \
+-object memory-backend-ram,size=8G,id=m1 \
+-numa node,memdev=m0,cpus=0-60,nodeid=0  -numa node,memdev=m1,nodeid=1 \
+-device vfio-pci-nohotplug,host=0000:75:00.1,iommufd=iommufd0,enable-migration=on,x-pre-copy-dirty-page-tracking=off \
+-bios /home/linaro/virtual/QEMU_EFI.fd \
+-device virtio-blk-device,drive=image \
+-drive if=none,file=/home/linaro/virtual/openEuler-22.03-LTS-SP3-aarch64.qcow2,id=image \
+-kernel /home/linaro/Image \
+-append "console=ttyAMA0,115200  root=/dev/vda2" \
+-nographic
