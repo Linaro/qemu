@@ -1,6 +1,6 @@
 build/qemu-system-aarch64 -object iommufd,id=iommufd0 \
 -machine hmat=on \
--machine virt,accel=kvm,gic-version=3,ras=on \
+-machine virt,accel=kvm,gic-version=3,iommu=nested-smmuv3,ras=on \
 -cpu host -smp cpus=61 -m size=16G,slots=4,maxmem=256G -nographic \
 -object memory-backend-ram,size=8G,id=m0 \
 -object memory-backend-ram,size=8G,id=m1 \
