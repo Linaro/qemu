@@ -55,6 +55,12 @@
  */
 #define VFIO_MIG_DEFAULT_DATA_BUFFER_SIZE (1 * MiB)
 
+enum {
+    VFIO_MIG_DIRTY_TRACKING_UNSUPPORTED = 0,
+    VFIO_MIG_DIRTY_TRACKING_IOMMU,
+    VFIO_MIG_DIRTY_TRACKING_DEVICE,
+};
+
 static int64_t bytes_transferred;
 
 static const char *mig_state_to_str(enum vfio_device_mig_state state)
@@ -1005,6 +1011,22 @@ void vfio_reset_bytes_transferred(void)
     bytes_transferred = 0;
 }
 
+static int vfio_migration_dirty_tracking(VFIODevice *vbasedev)
+{
+    if (vbasedev->dirty_pages_supported &&
+        vbasedev->device_dirty_page_tracking != ON_OFF_AUTO_OFF)
+	return VFIO_MIG_DIRTY_TRACKING_DEVICE;
+    else if (vbasedev->iommu_dirty_tracking)
+	return VFIO_MIG_DIRTY_TRACKING_IOMMU;
+    return VFIO_MIG_DIRTY_TRACKING_UNSUPPORTED;
+}
+
+static bool vfio_migration_iommu_tracking(VFIODevice *vbasedev)
+{
+    return vfio_migration_dirty_tracking(vbasedev) ==
+            VFIO_MIG_DIRTY_TRACKING_IOMMU;
+}
+
 /*
  * Return true when either migration initialized or blocker registered.
  * Currently only return false when adding blocker fails which will
@@ -1036,9 +1058,7 @@ bool vfio_migration_realize(VFIODevice *vbasedev, Error **errp)
         return !vfio_block_migration(vbasedev, err, errp);
     }
 
-    if ((!vbasedev->dirty_pages_supported ||
-         vbasedev->device_dirty_page_tracking == ON_OFF_AUTO_OFF) &&
-        !vbasedev->iommu_dirty_tracking) {
+    if (!vfio_migration_dirty_tracking(vbasedev)) {
         if (vbasedev->enable_migration == ON_OFF_AUTO_AUTO) {
             error_setg(&err,
                        "%s: VFIO device doesn't support device and "
@@ -1055,7 +1075,8 @@ bool vfio_migration_realize(VFIODevice *vbasedev, Error **errp)
         goto out_deinit;
     }
 
-    if (vfio_viommu_preset(vbasedev)) {
+    if (vfio_viommu_preset(vbasedev) &&
+        !vfio_migration_iommu_tracking(vbasedev)) {
         error_setg(&err, "%s: Migration is currently not supported "
                    "with vIOMMU enabled", vbasedev->name);
         goto add_blocker;
