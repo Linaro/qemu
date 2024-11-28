@@ -45,8 +45,17 @@ static int iommufd_cdev_unmap(const VFIOContainerBase *bcontainer,
 {
     const VFIOIOMMUFDContainer *container =
         container_of(bcontainer, VFIOIOMMUFDContainer, bcontainer);
+    Error *local_err = NULL;
+    int ret;
 
-    /* TODO: Handle dma_unmap_bitmap with iotlb args (migration) */
+    if (iotlb && vfio_devices_all_dirty_tracking_started(bcontainer)) {
+        ret = vfio_get_dirty_bitmap(bcontainer, iova, size,
+                                    iotlb->translated_addr, &local_err);
+        if (ret) {
+            error_report_err(local_err);
+        }
+    }
+
     return iommufd_backend_unmap_dma(container->be,
                                      container->ioas_id, iova, size);
 }
