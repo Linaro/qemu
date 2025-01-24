@@ -50,7 +50,7 @@ static int iommufd_cdev_unmap(const VFIOContainerBase *bcontainer,
 
     if (iotlb && vfio_devices_all_dirty_tracking_started(bcontainer)) {
         ret = vfio_get_dirty_bitmap(bcontainer, iova, size,
-                                    iotlb->translated_addr, 0, &local_err);
+                                    iotlb->translated_addr, VFIO_GET_DIRTY_NO_FLUSH, &local_err);
         if (ret) {
             error_report_err(local_err);
         }
@@ -166,7 +166,11 @@ static int iommufd_query_dirty_bitmap(const VFIOContainerBase *bcontainer,
                                                    VFIOIOMMUFDContainer,
                                                    bcontainer);
     unsigned long page_size = qemu_real_host_page_size();
+    uint64_t dirty_flags = 0;
     VFIOIOASHwpt *hwpt;
+
+    if (flags & VFIO_GET_DIRTY_NO_FLUSH)
+        dirty_flags = IOMMU_HWPT_GET_DIRTY_BITMAP_NO_CLEAR;
 
     QLIST_FOREACH(hwpt, &container->hwpt_list, next) {
         if (!iommufd_hwpt_dirty_tracking(hwpt)) {
@@ -176,7 +180,7 @@ static int iommufd_query_dirty_bitmap(const VFIOContainerBase *bcontainer,
         if (!iommufd_backend_get_dirty_bitmap(container->be, hwpt->hwpt_id,
                                               iova, size, page_size,
                                               (uint64_t *)vbmap->bitmap,
-                                              0, errp)) {
+                                              dirty_flags, errp)) {
             return -EINVAL;
         }
     }
