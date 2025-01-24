@@ -5798,6 +5798,29 @@ static void vtd_iommu_replay(IOMMUMemoryRegion *iommu_mr, IOMMUNotifier *n)
     return;
 }
 
+static int vtd_iommu_get_attr(IOMMUMemoryRegion *iommu_mr,
+                              enum IOMMUMemoryRegionAttr attr, void *data)
+{
+    VTDAddressSpace *vtd_as = container_of(iommu_mr, VTDAddressSpace, iommu);
+    IntelIOMMUState *s = vtd_as->iommu_state;
+    int ret = 0;
+
+    switch (attr) {
+    case IOMMU_ATTR_DMA_TRANSLATION:
+    {
+        bool *enabled = (bool *)(uintptr_t) data;
+
+        *enabled = s->dma_translation;
+        break;
+    }
+    default:
+        ret = -EINVAL;
+        break;
+    }
+
+    return ret;
+}
+
 static void vtd_cap_init(IntelIOMMUState *s)
 {
     X86IOMMUState *x86_iommu = X86_IOMMU_DEVICE(s);
@@ -6009,11 +6032,27 @@ static bool vtd_pci_device_get_pasid_cap(PCIBus *bus,
     return (s->ecap & VTD_ECAP_PASID);
 }
 
+static int vtd_get_iommu_attr(PCIBus *bus, void *opaque, int32_t devfn,
+                              enum IOMMUMemoryRegionAttr attr, void *data)
+{
+    IntelIOMMUState *s = opaque;
+    VTDAddressSpace *vtd_as;
+
+    assert(0 <= devfn && devfn < PCI_DEVFN_MAX);
+
+    vtd_as = vtd_find_add_as(s, bus, devfn, PCI_NO_PASID);
+    if (!vtd_as)
+	return -EINVAL;
+
+    return memory_region_iommu_get_attr(&vtd_as->iommu, attr, data);
+}
+
 static PCIIOMMUOps vtd_iommu_ops = {
     .get_address_space = vtd_host_dma_iommu,
     .set_iommu_device = vtd_dev_set_iommu_device,
     .unset_iommu_device = vtd_dev_unset_iommu_device,
     .get_pasid_cap = vtd_pci_device_get_pasid_cap,
+    .get_iommu_attr = vtd_get_iommu_attr,
 };
 
 static bool vtd_decide_config(IntelIOMMUState *s, Error **errp)
@@ -6213,6 +6252,7 @@ static void vtd_iommu_memory_region_class_init(ObjectClass *klass,
     imrc->translate = vtd_iommu_translate;
     imrc->notify_flag_changed = vtd_iommu_notify_flag_changed;
     imrc->replay = vtd_iommu_replay;
+    imrc->get_attr = vtd_iommu_get_attr;
 }
 
 static const TypeInfo vtd_iommu_memory_region_info = {
