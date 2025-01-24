@@ -165,7 +165,7 @@ static int vfio_legacy_dma_unmap(const VFIOContainerBase *bcontainer,
 
     if (need_dirty_sync) {
         ret = vfio_get_dirty_bitmap(bcontainer, iova, size,
-                                    iotlb->translated_addr, &local_err);
+                                    iotlb->translated_addr, 0, &local_err);
         if (ret) {
             error_report_err(local_err);
             return ret;
@@ -236,7 +236,8 @@ vfio_legacy_set_dirty_page_tracking(const VFIOContainerBase *bcontainer,
 }
 
 static int vfio_legacy_query_dirty_bitmap(const VFIOContainerBase *bcontainer,
-                      VFIOBitmap *vbmap, hwaddr iova, hwaddr size, Error **errp)
+                      VFIOBitmap *vbmap, hwaddr iova, hwaddr size,
+                      uint64_t flags, Error **errp)
 {
     const VFIOContainer *container = container_of(bcontainer, VFIOContainer,
                                                   bcontainer);

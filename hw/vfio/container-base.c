@@ -84,13 +84,14 @@ int vfio_container_set_dirty_page_tracking(VFIOContainerBase *bcontainer,
 }
 
 int vfio_container_query_dirty_bitmap(const VFIOContainerBase *bcontainer,
-                   VFIOBitmap *vbmap, hwaddr iova, hwaddr size, Error **errp)
+                   VFIOBitmap *vbmap, hwaddr iova, hwaddr size,
+                   uint64_t flags, Error **errp)
 {
     VFIOIOMMUClass *vioc = VFIO_IOMMU_GET_CLASS(bcontainer);
 
     g_assert(vioc->query_dirty_bitmap);
     return vioc->query_dirty_bitmap(bcontainer, vbmap, iova, size,
-                                               errp);
+                                    flags, errp);
 }
 
 static gpointer copy_iova_range(gconstpointer src, gpointer data)
