@@ -54,7 +54,6 @@ void dump_vmstate_json_to_file(FILE *out_fp);
 void migration_object_init(void);
 void migration_shutdown(void);
 bool migration_is_idle(void);
-bool migration_is_active(void);
 bool migration_thread_is_self(void);
 bool migration_is_setup_or_active(void);
 
