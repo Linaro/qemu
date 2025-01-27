@@ -1424,7 +1424,8 @@ static void migrate_fd_cleanup(MigrationState *s)
         trace_migrate_fd_cleanup();
         bql_unlock();
         if (s->migration_thread_running) {
-            qemu_thread_join(&s->thread);
+	    if (&s->thread != NULL)
+		    qemu_thread_join(&s->thread);
             s->migration_thread_running = false;
         }
         bql_lock();
@@ -2496,6 +2497,7 @@ static bool close_return_path_on_source(MigrationState *ms)
         }
     }
 
+	    printf("gzf %s\n", __func__);
     qemu_thread_join(&ms->rp_state.rp_thread);
     ms->rp_state.rp_thread_created = false;
     migration_release_dst_files(ms);

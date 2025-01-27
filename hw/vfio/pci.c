@@ -3010,6 +3010,7 @@ static void vfio_viommu_init(VFIOPCIDevice *vdev)
      * By default, it is not advertised i.e. space::max_iova is 0.
      */
     pci_device_iommu_get_attr(pdev, IOMMU_ATTR_MAX_IOVA, &space->max_iova);
+    printf("gzf %s space->max_iova=%lx\n", __func__, space->max_iova);
 }
 
 static void vfio_realize(PCIDevice *pdev, Error **errp)

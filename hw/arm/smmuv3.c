@@ -2053,6 +2053,7 @@ static void smmu_realloc_veventq(SMMUState *bs, uint32_t log2size)
     if (!viommu)
         return;
     if (viommu->veventq) {
+	    printf("gzf %s\n", __func__);
         qemu_thread_join(&bs->event_thread_id);
         iommufd_backend_free_id(viommu->iommufd, viommu->veventq->veventq_id);
         g_free(viommu->veventq);
@@ -2537,6 +2538,8 @@ static Property smmuv3_properties[] = {
      * Defaults to stage 1
      */
     DEFINE_PROP_STRING("stage", SMMUv3State, stage),
+    //DEFINE_PROP_UINT8("aw-bits", SMMUv3State, aw_bits, 0xff),
+    //DEFINE_PROP_BOOL("dma-translation", SMMUv3State, dma_translation, true),
     DEFINE_PROP_END_OF_LIST()
 };
 
@@ -2588,6 +2591,41 @@ static int smmuv3_notify_flag_changed(IOMMUMemoryRegion *iommu,
     return 0;
 }
 
+static int smmuv3_get_attr(IOMMUMemoryRegion *mr,
+                           enum IOMMUMemoryRegionAttr attr, void *data)
+{
+    //SMMUDevice *sdev = container_of(mr, SMMUDevice, iommu);
+    //SMMUv3State *s = sdev->smmu;
+    int ret = 0;
+
+printf("gzf %s attr=%d\n", __func__, attr);
+
+/*
+    switch (attr) {
+    case IOMMU_ATTR_DMA_TRANSLATION:
+    {
+        bool *enabled = (bool *)(uintptr_t) data;
+
+	printf("gzf %s IOMMU_ATTR_DMA_TRANSLATION s->dma_translation=%x\n", __func__, s->dma_translation);
+        *enabled = s->dma_translation;
+        break;
+    }
+    case IOMMU_ATTR_MAX_IOVA:
+    {
+        hwaddr *max_iova = (hwaddr *)(uintptr_t) data;
+
+	printf("gzf %s IOMMU_ATTR_MAX_IOVA s->aw_bits=%x\n", __func__, s->aw_bits);
+        *max_iova = MAKE_64BIT_MASK(0, s->aw_bits);;
+        break;
+    }
+    default:
+        ret = -EINVAL;
+        break;
+    }
+*/
+    return ret;
+}
+
 static void smmuv3_iommu_memory_region_class_init(ObjectClass *klass,
                                                   void *data)
 {
@@ -2595,6 +2633,7 @@ static void smmuv3_iommu_memory_region_class_init(ObjectClass *klass,
 
     imrc->translate = smmuv3_translate;
     imrc->notify_flag_changed = smmuv3_notify_flag_changed;
+    imrc->get_attr = smmuv3_get_attr;
 }
 
 static const TypeInfo smmuv3_type_info = {

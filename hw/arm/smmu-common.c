@@ -1078,7 +1078,9 @@ static void smmu_dev_unset_iommu_device(PCIBus *bus, void *opaque, int devfn)
     }
 
     if (QLIST_EMPTY(&viommu->device_list)) {
-        qemu_thread_join(&s->event_thread_id);
+	    printf("gzf %s\n", __func__);
+        if (&s->event_thread_id)
+            qemu_thread_join(&s->event_thread_id);
         iommufd_backend_free_id(viommu->iommufd, viommu->bypass_hwpt_id);
         iommufd_backend_free_id(viommu->iommufd, viommu->abort_hwpt_id);
         iommufd_backend_free_id(viommu->iommufd, viommu->core->viommu_id);
@@ -1098,11 +1100,45 @@ static bool smmu_dev_get_pasid_cap(PCIBus *bus,
     return true;
 }
 
+static int smmu_get_iommu_attr(PCIBus *bus, void *opaque, int32_t devfn,
+                              enum IOMMUMemoryRegionAttr attr, void *data)
+{
+    int ret = 0;
+    assert(0 <= devfn && devfn < PCI_DEVFN_MAX);
+
+    printf("gzf %s attr=%d\n", __func__, attr);
+    switch (attr) {
+    case IOMMU_ATTR_DMA_TRANSLATION:
+    {
+        bool *enabled = (bool *)(uintptr_t) data;
+
+	printf("gzf %s IOMMU_ATTR_DMA_TRANSLATION s->dma_translation\n", __func__);
+        ///*enabled = true; //s->dma_translation;
+        *enabled = false; //s->dma_translation;
+        break;
+    }
+    case IOMMU_ATTR_MAX_IOVA:
+    {
+        hwaddr *max_iova = (hwaddr *)(uintptr_t) data;
+
+	printf("gzf %s IOMMU_ATTR_MAX_IOVA s->aw_bits\n", __func__);
+        *max_iova = MAKE_64BIT_MASK(0, 64);;
+        break;
+    }
+    default:
+        ret = -EINVAL;
+        break;
+    }
+
+    return ret;
+    return true;
+}
 static const PCIIOMMUOps smmu_ops = {
     .get_address_space = smmu_find_add_as,
     .set_iommu_device = smmu_dev_set_iommu_device,
     .unset_iommu_device = smmu_dev_unset_iommu_device,
     .get_pasid_cap = smmu_dev_get_pasid_cap,
+    .get_iommu_attr = smmu_get_iommu_attr,
 };
 
 SMMUDevice *smmu_find_sdev(SMMUState *s, uint32_t sid)
@@ -1161,6 +1197,7 @@ void smmu_dev_uninstall_nested_ste(SMMUDevice *sdev, bool abort)
         sqe  = io_uring_get_sqe(ring);
         io_uring_prep_timeout(sqe, &ts, 0, 0);
         io_uring_submit(ring);
+	    printf("gzf %s\n", __func__);
 
         qemu_cond_signal(&s1_hwpt->fault_cond);
         qemu_thread_join(&s1_hwpt->read_fault_thread);

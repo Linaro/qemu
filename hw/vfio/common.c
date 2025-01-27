@@ -922,6 +922,7 @@ static bool vfio_dirty_tracking_init(VFIOContainerBase *bcontainer,
     dirty.ranges.minpci64 = UINT64_MAX;
     dirty.listener = vfio_dirty_tracking_listener;
     dirty.bcontainer = bcontainer;
+    printf("gzf %s\n", __func__);
 
     if (vfio_devices_all_viommu_preset(bcontainer)) {
         hwaddr iommu_max_iova;
