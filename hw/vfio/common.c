@@ -571,7 +571,7 @@ static void vfio_listener_region_add(MemoryListener *listener,
     hwaddr iova, end;
     Int128 llend, llsize;
     void *vaddr;
-    int ret;
+    int ret = 0;
     Error *err = NULL;
 
     if (!vfio_listener_valid_section(section, "region_add")) {
@@ -595,6 +595,8 @@ static void vfio_listener_region_add(MemoryListener *listener,
     }
 
     memory_region_ref(section->mr);
+
+    printf("%s section->mr=%p\n", __func__, section->mr);
 
     if (memory_region_is_iommu(section->mr)) {
         VFIOGuestIOMMU *giommu;
@@ -669,6 +671,10 @@ static void vfio_listener_region_add(MemoryListener *listener,
         }
     }
 
+        printf("vfio_container_dma_map(%p, 0x%"HWADDR_PRIx", "
+                   "0x%"HWADDR_PRIx", %p) = %d (%s)\n",
+                   bcontainer, iova, int128_get64(llsize), vaddr, ret,
+                   strerror(-ret));
     ret = vfio_container_dma_map(bcontainer, iova, int128_get64(llsize),
                                  vaddr, section->readonly);
     if (ret) {

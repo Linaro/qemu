@@ -2415,11 +2415,76 @@ static const VMStateDescription vmstate_gbpa = {
     }
 };
 
+static void smmuv3_rebuild_page_table(SMMUv3State *s)
+{
+    uint32_t sid;
+    STE ste;
+    SMMUDevice *sdev;
+    SMMUEventInfo event = {.type = SMMU_EVT_NONE, .inval_ste_allowed = true};
+
+    SMMUState *smmu = &(s->smmu_state);
+    if (!smmu->viommu) {
+        return;
+    }
+
+    QLIST_FOREACH(sdev, &smmu->viommu->device_list, next) {
+	IOMMUMemoryRegion *mr = &sdev->iommu;
+        sid = smmu_get_sid(sdev);
+
+	printf("Device: %p, SID: %u\n", sdev, smmu_get_sid(sdev));
+        if (!sdev->s1_hwpt) {
+            printf("HWPT not allocated for device with SID: %u\n", smmu_get_sid(sdev));
+	    smmuv3_install_nested_ste(sdev, sid);
+        } else {
+            printf("HWPT allocated: ID = %u\n", sdev->s1_hwpt->hwpt_id);
+        }
+
+        if (smmu_find_ste(s, sid, &ste, &event) == 0) {
+            SMMUTransCfg cfg = {};
+            if (decode_ste(s, &cfg, &ste, &event) == 0) {
+                if (!cfg.aborted && !cfg.bypassed && (cfg.stage == SMMU_STAGE_1)) {
+                    CD cd;
+                    if (smmu_get_cd(s, &ste, &cfg, 0 /* ssid */, &cd, &event) == 0) {
+                        if (decode_cd(s, &cfg, &cd, &event) == 0) {
+				printf("test MEMORY_REGION(mr)=%p, mr=%p\n", MEMORY_REGION(mr), mr);
+				memory_region_set_enabled(MEMORY_REGION(mr), false);
+				memory_region_set_enabled(MEMORY_REGION(mr), true);
+			}
+                    }
+                }
+            }
+        }
+    }
+}
+
+static int smmuv3_post_load(void *opaque, int version_id)
+{
+    SMMUv3State *s = opaque;
+    printf("%s\n", __func__);
+    printf("%s s->strtab_base=%lx\n", __func__, s->strtab_base);
+    printf("%s s->strtab_base_cfg=%x\n", __func__, s->strtab_base_cfg);
+
+    smmuv3_rebuild_page_table(s);
+    return 0;
+}
+static int smmuv3_pre_save(void *opaque)
+{
+    SMMUv3State *s = opaque;
+
+    printf("%s\n", __func__);
+    printf("%s s->strtab_base=%lx\n", __func__, s->strtab_base);
+    printf("%s s->strtab_base_cfg=%x\n", __func__, s->strtab_base_cfg);
+
+    return 0;
+
+}
 static const VMStateDescription vmstate_smmuv3 = {
     .name = "smmuv3",
     .version_id = 1,
     .minimum_version_id = 1,
     .priority = MIG_PRI_IOMMU,
+    .post_load = smmuv3_post_load,
+    .pre_save = smmuv3_pre_save,
     .fields = (const VMStateField[]) {
         VMSTATE_UINT32(features, SMMUv3State),
         VMSTATE_UINT8(sid_size, SMMUv3State),
