@@ -2417,10 +2417,9 @@ static const VMStateDescription vmstate_gbpa = {
 
 static void smmuv3_rebuild_page_table(SMMUv3State *s)
 {
-    uint32_t sid;
-    STE ste;
     SMMUDevice *sdev;
-    SMMUEventInfo event = {.type = SMMU_EVT_NONE, .inval_ste_allowed = true};
+    uint32_t sid;
+    SMMUSIDRange sid_range;
 
     SMMUState *smmu = &(s->smmu_state);
     if (!smmu->viommu) {
@@ -2428,32 +2427,16 @@ static void smmuv3_rebuild_page_table(SMMUv3State *s)
     }
 
     QLIST_FOREACH(sdev, &smmu->viommu->device_list, next) {
-	IOMMUMemoryRegion *mr = &sdev->iommu;
-        sid = smmu_get_sid(sdev);
+	sid = smmu_get_sid(sdev);
 
-	printf("Device: %p, SID: %u\n", sdev, smmu_get_sid(sdev));
-        if (!sdev->s1_hwpt) {
-            printf("HWPT not allocated for device with SID: %u\n", smmu_get_sid(sdev));
-	    smmuv3_install_nested_ste(sdev, sid);
-        } else {
-            printf("HWPT allocated: ID = %u\n", sdev->s1_hwpt->hwpt_id);
-        }
+        printf("Invalidating STE for device with SID: %u\n", sid);
 
-        if (smmu_find_ste(s, sid, &ste, &event) == 0) {
-            SMMUTransCfg cfg = {};
-            if (decode_ste(s, &cfg, &ste, &event) == 0) {
-                if (!cfg.aborted && !cfg.bypassed && (cfg.stage == SMMU_STAGE_1)) {
-                    CD cd;
-                    if (smmu_get_cd(s, &ste, &cfg, 0 /* ssid */, &cd, &event) == 0) {
-                        if (decode_cd(s, &cfg, &cd, &event) == 0) {
-				printf("test MEMORY_REGION(mr)=%p, mr=%p\n", MEMORY_REGION(mr), mr);
-				memory_region_set_enabled(MEMORY_REGION(mr), false);
-				memory_region_set_enabled(MEMORY_REGION(mr), true);
-			}
-                    }
-                }
-            }
-        }
+        sid_range.state = smmu;
+        sid_range.start = sid;
+        sid_range.end = sid;
+
+        g_hash_table_foreach_remove(smmu->configs, smmuv3_invalidate_ste, &sid_range);
+        smmuv3_invalidate_nested_ste(&sid_range);
     }
 }
 
