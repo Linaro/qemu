@@ -19,4 +19,9 @@ build/qemu-system-aarch64 -object iommufd,id=iommufd0 \
 -drive if=none,file=/home/linaro/virtual/openEuler-22.03-LTS-SP3-aarch64.qcow2,id=image \
 -kernel /home/linaro/Image \
 -append "console=ttyAMA0,115200  root=/dev/vda2" \
+-netdev user,id=user0,hostfwd=tcp::5000-:22 \
+-device virtio-net-device,netdev=user0 \
 -nographic
+
+#-device pcie-root-port,id=pcie.port3,bus=pcie.1,chassis=3,pref64-reserve=2M,io-reserve=1K \
+#-device vfio-pci,host=0000:79:00.1,bus=pcie.port3,iommufd=iommufd0,x-pre-copy-dirty-page-tracking=off \
