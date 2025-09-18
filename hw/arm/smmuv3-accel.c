@@ -213,6 +213,41 @@ bool smmuv3_accel_install_nested_ste_range(SMMUv3State *s, SMMUSIDRange *range,
     return true;
 }
 
+/*
+ * This issues the invalidation cmd to the host SMMUv3.
+ * Note: sdev can be NULL for certain invalidation commands
+ * e.g., SMMU_CMD_TLBI_NH_ASID, SMMU_CMD_TLBI_NH_VA etc.
+ */
+bool smmuv3_accel_issue_inv_cmd(SMMUv3State *bs, void *cmd, SMMUDevice *sdev,
+                                Error **errp)
+{
+    SMMUv3State *s = ARM_SMMUV3(bs);
+    SMMUv3AccelState *s_accel = s->s_accel;
+    IOMMUFDViommu *viommu;
+    uint32_t entry_num = 1;
+
+    /* No vIOMMU means no VFIO/IOMMUFD devices, nothing to invalidate. */
+    if (!s_accel || !s_accel->vsmmu) {
+        return true;
+    }
+
+    /*
+     * Called for emulated bridges or root ports, but SID-based
+     * invalidations (e.g. CFGI_CD) apply only to vfio-pci endpoints
+     * with a valid vIOMMU vdev.
+     */
+    if (sdev && !container_of(sdev, SMMUv3AccelDevice, sdev)->vdev) {
+        return true;
+    }
+
+    viommu = &s_accel->vsmmu->viommu;
+    /* Single command (entry_num = 1); no need to check returned entry_num */
+    return iommufd_backend_invalidate_cache(
+                   viommu->iommufd, viommu->viommu_id,
+                   IOMMU_VIOMMU_INVALIDATE_DATA_ARM_SMMUV3,
+                   sizeof(Cmd), &entry_num, cmd, errp);
+}
+
 static SMMUv3AccelDevice *smmuv3_accel_get_dev(SMMUState *bs, SMMUPciBus *sbus,
                                                PCIBus *bus, int devfn)
 {
