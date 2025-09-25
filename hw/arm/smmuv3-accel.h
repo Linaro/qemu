@@ -55,6 +55,7 @@ bool smmuv3_accel_issue_inv_cmd(SMMUv3State *s, void *cmd, SMMUDevice *sdev,
                                 Error **errp);
 void smmuv3_accel_gbpa_update(SMMUv3State *s);
 void smmuv3_accel_reset(SMMUv3State *s);
+void smmuv3_accel_idr_override(SMMUv3State *s);
 #else
 static inline void smmuv3_accel_init(SMMUv3State *s)
 {
@@ -81,6 +82,9 @@ static inline void smmuv3_accel_gbpa_update(SMMUv3State *s)
 {
 }
 static inline void smmuv3_accel_reset(SMMUv3State *s)
+{
+}
+static inline void smmuv3_accel_idr_override(SMMUv3State *s)
 {
 }
 #endif

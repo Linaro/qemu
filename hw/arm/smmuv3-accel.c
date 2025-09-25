@@ -63,10 +63,10 @@ smmuv3_accel_check_hw_compatible(SMMUv3State *s,
         return false;
     }
 
-    /* QEMU SMMUv3 supports Range Invalidation by default */
+    /* User can disable QEMU SMMUv3 Range Invalidation support */
     if (FIELD_EX32(info->idr[3], IDR3, RIL) !=
                 FIELD_EX32(s->idr[3], IDR3, RIL)) {
-        error_setg(errp, "Host SMMUv3 doesn't support Range Invalidation");
+        error_setg(errp, "Host SMMUv3 differs in Range Invalidation support");
         return false;
     }
 
@@ -635,6 +635,17 @@ static const PCIIOMMUOps smmuv3_accel_ops = {
     .get_msi_address_space = smmuv3_accel_get_msi_as,
 };
 
+void smmuv3_accel_idr_override(SMMUv3State *s)
+{
+    if (!s->accel) {
+        return;
+    }
+
+    /* By default QEMU SMMUv3 has RIL. Update IDR3 if user has disabled it */
+    if (!s->ril) {
+        s->idr[3] = FIELD_DP32(s->idr[3], IDR3, RIL, 0);
+    }
+}
 
 /* Based on SMUUv3 GBPA configuration, attach a corresponding HWPT */
 void smmuv3_accel_gbpa_update(SMMUv3State *s)
