@@ -4605,6 +4605,7 @@ static bool vtd_check_hiod(IntelIOMMUState *s, HostIOMMUDevice *hiod,
                            Error **errp)
 {
     HostIOMMUDeviceClass *hiodc = HOST_IOMMU_DEVICE_GET_CLASS(hiod);
+    uint64_t out_cap;
     int ret;
 
     if (!hiodc->get_cap) {
@@ -4613,12 +4614,13 @@ static bool vtd_check_hiod(IntelIOMMUState *s, HostIOMMUDevice *hiod,
     }
 
     /* Common checks */
-    ret = hiodc->get_cap(hiod, HOST_IOMMU_DEVICE_CAP_AW_BITS, errp);
+    ret = hiodc->get_cap(hiod, HOST_IOMMU_DEVICE_CAP_AW_BITS, &out_cap, errp);
     if (ret < 0) {
         return false;
     }
-    if (s->aw_bits > ret) {
-        error_setg(errp, "aw-bits %d > host aw-bits %d", s->aw_bits, ret);
+    if (s->aw_bits > out_cap) {
+        error_setg(errp, "aw-bits %d > host aw-bits 0x%" PRIx64, s->aw_bits,
+                   out_cap);
         return false;
     }
 
