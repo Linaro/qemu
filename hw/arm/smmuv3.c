@@ -611,9 +611,11 @@ static int decode_ste(SMMUv3State *s, SMMUTransCfg *cfg,
         }
     }
 
-    if (STE_S1CDMAX(ste) != 0) {
+    /* If pasid not enabled, can't support multiple CDs */
+    if (!s->pasid && STE_S1CDMAX(ste) != 0) {
         qemu_log_mask(LOG_UNIMP,
-                      "SMMUv3 does not support multiple context descriptors yet\n");
+              "SMMUv3: multiple S1 context descriptors require PASID support. "
+              "Enable PASID with pasid=on (supported only with accel=on)\n");
         goto bad_ste;
     }
 
@@ -1950,6 +1952,10 @@ static bool smmu_validate_property(SMMUv3State *s, Error **errp)
             error_setg(errp, "OAS can only be set to 44 bits if accel=off");
             return false;
         }
+        if (s->pasid) {
+            error_setg(errp, "pasid can only be enabled if accel=on");
+            return false;
+        }
         return true;
     }
 
@@ -2084,6 +2090,7 @@ static const Property smmuv3_properties[] = {
     DEFINE_PROP_BOOL("ril", SMMUv3State, ril, true),
     DEFINE_PROP_BOOL("ats", SMMUv3State, ats, false),
     DEFINE_PROP_UINT8("oas", SMMUv3State, oas, 44),
+    DEFINE_PROP_BOOL("pasid", SMMUv3State, pasid, false),
 };
 
 static void smmuv3_instance_init(Object *obj)
@@ -2117,6 +2124,8 @@ static void smmuv3_class_init(ObjectClass *klass, const void *data)
     object_class_property_set_description(klass, "oas",
         "Specify Output Address Size (for accel =on). Supported values "
         "are 44 or 48 bits. Defaults to 44 bits");
+    object_class_property_set_description(klass, "pasid",
+        "Enable/disable PASID support (for accel=on)");
 }
 
 static int smmuv3_notify_flag_changed(IOMMUMemoryRegion *iommu,
