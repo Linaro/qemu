@@ -24,6 +24,7 @@
 #include <sys/ioctl.h>
 
 #include "hw/hw.h"
+#include "hw/iommu.h"
 #include "hw/pci/msi.h"
 #include "hw/pci/msix.h"
 #include "hw/pci/pci_bridge.h"
@@ -2500,7 +2501,12 @@ static int vfio_setup_rebar_ecap(VFIOPCIDevice *vdev, uint16_t pos)
 
 static void vfio_add_ext_cap(VFIOPCIDevice *vdev)
 {
+    HostIOMMUDevice *hiod = vdev->vbasedev.hiod;
+    HostIOMMUDeviceClass *hiodc = HOST_IOMMU_DEVICE_GET_CLASS(hiod);
     PCIDevice *pdev = PCI_DEVICE(vdev);
+    uint64_t max_pasid_log2 = 0;
+    bool pasid_cap_added = false;
+    uint64_t hw_caps;
     uint32_t header;
     uint16_t cap_id, next, size;
     uint8_t cap_ver;
@@ -2578,11 +2584,42 @@ static void vfio_add_ext_cap(VFIOPCIDevice *vdev)
                 pcie_add_capability(pdev, cap_id, cap_ver, next, size);
             }
             break;
+        case PCI_EXT_CAP_ID_PASID:
+             pasid_cap_added = true;
+             /* fallthrough */
         default:
             pcie_add_capability(pdev, cap_id, cap_ver, next, size);
         }
 
     }
+
+#ifdef CONFIG_IOMMUFD
+    /*
+     * Although we check for PCI_EXT_CAP_ID_PASID above, the Linux VFIO
+     * framework currently hides this capability. Try to retrieve it
+     * through alternative kernel interfaces (e.g. IOMMUFD APIs).
+     */
+    if (!pasid_cap_added && hiodc->get_cap) {
+        hiodc->get_cap(hiod, HOST_IOMMU_DEVICE_CAP_GENERIC_HW, &hw_caps, NULL);
+        hiodc->get_cap(hiod, HOST_IOMMU_DEVICE_CAP_MAX_PASID_LOG2,
+                       &max_pasid_log2, NULL);
+    }
+
+    /*
+     * If supported, adds the PASID capability in the end of the PCIe config
+     * space. TODO: Add option for enabling pasid at a safe offset.
+     */
+    if (max_pasid_log2 && (pci_device_get_viommu_flags(pdev) &
+                           VIOMMU_FLAG_PASID_SUPPORTED)) {
+        bool exec_perm = (hw_caps & IOMMU_HW_CAP_PCI_PASID_EXEC) ? true : false;
+        bool priv_mod = (hw_caps & IOMMU_HW_CAP_PCI_PASID_PRIV) ? true : false;
+
+        pcie_pasid_init(pdev, PCIE_CONFIG_SPACE_SIZE - PCI_EXT_CAP_PASID_SIZEOF,
+                        max_pasid_log2, exec_perm, priv_mod);
+        /* PASID capability is fully emulated by QEMU */
+        memset(vdev->emulated_config_bits + pdev->exp.pasid_cap, 0xff, 8);
+    }
+#endif
 
     /* Cleanup chain head ID if necessary */
     if (pci_get_word(pdev->config + PCI_CONFIG_SPACE_SIZE) == 0xFFFF) {
