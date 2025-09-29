@@ -479,6 +479,48 @@ static const PCIIOMMUOps smmuv3_accel_ops = {
     .unset_iommu_device = smmuv3_accel_unset_iommu_device,
 };
 
+
+/* Based on SMUUv3 GBPA configuration, attach a corresponding HWPT */
+void smmuv3_accel_gbpa_update(SMMUv3State *s)
+{
+    SMMUv3AccelDevice *accel_dev;
+    Error *local_err = NULL;
+    SMMUViommu *vsmmu;
+    uint32_t hwpt_id;
+
+    if (!s->accel || !s->s_accel->vsmmu) {
+        return;
+    }
+
+    vsmmu = s->s_accel->vsmmu;
+    /*
+     * The Linux kernel does not allow configuring GBPA MemAttr, MTCFG,
+     * ALLOCCFG, SHCFG, PRIVCFG, or INSTCFG fields for a vSTE. Host kernel
+     * has final control over these parameters. Hence, use one of the
+     * pre-allocated HWPTs depending on GBPA.ABORT value.
+     */
+    if (s->gbpa & SMMU_GBPA_ABORT) {
+        hwpt_id = vsmmu->abort_hwpt_id;
+    } else {
+        hwpt_id = vsmmu->bypass_hwpt_id;
+    }
+
+    QLIST_FOREACH(accel_dev, &vsmmu->device_list, next) {
+        if (!host_iommu_device_iommufd_attach_hwpt(accel_dev->idev, hwpt_id,
+                                                   &local_err)) {
+            error_append_hint(&local_err, "Failed to attach GBPA hwpt id %u "
+                              "for dev id %u", hwpt_id, accel_dev->idev->devid);
+            error_report_err(local_err);
+        }
+    }
+}
+
+void smmuv3_accel_reset(SMMUv3State *s)
+{
+     /* Attach a HWPT based on GBPA reset value */
+     smmuv3_accel_gbpa_update(s);
+}
+
 static void smmuv3_accel_as_init(SMMUv3State *s)
 {
 
