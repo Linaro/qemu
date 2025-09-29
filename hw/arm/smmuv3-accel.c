@@ -28,6 +28,12 @@ MemoryRegion root;
 MemoryRegion sysmem;
 static AddressSpace *shared_as_sysmem;
 
+static int smmuv3_oas_bits(uint32_t oas)
+{
+    static const int map[] = { 32, 36, 40, 42, 44, 48, 52, 56 };
+    return (oas < ARRAY_SIZE(map)) ? map[oas] : -EINVAL;
+}
+
 static bool
 smmuv3_accel_check_hw_compatible(SMMUv3State *s,
                                  struct iommu_hw_info_arm_smmuv3 *info,
@@ -67,6 +73,18 @@ smmuv3_accel_check_hw_compatible(SMMUv3State *s,
     if (FIELD_EX32(info->idr[3], IDR3, RIL) !=
                 FIELD_EX32(s->idr[3], IDR3, RIL)) {
         error_setg(errp, "Host SMMUv3 differs in Range Invalidation support");
+        return false;
+    }
+
+    /*
+     * TODO: OAS is not something Linux kernel doc says meaningful for user.
+     * But looks like OAS needs to be compatible for accelerator support. Please
+     * check.
+     */
+    if (FIELD_EX32(info->idr[5], IDR5, OAS) <
+                FIELD_EX32(s->idr[5], IDR5, OAS)) {
+        error_setg(errp, "Host SMMUv3 OAS(%d) bits not compatible",
+                   smmuv3_oas_bits(FIELD_EX32(info->idr[5], IDR5, OAS)));
         return false;
     }
 
@@ -648,6 +666,10 @@ void smmuv3_accel_idr_override(SMMUv3State *s)
     /* QEMU SMMUv3 has no ATS. Update IDR0 if user has enabled it */
     if (s->ats) {
         s->idr[0] = FIELD_DP32(s->idr[0], IDR0, ATS, 1); /* ATS */
+    }
+    /* QEMU SMMUv3 has OAS set 44. Update IDR5 if user has it set to 48 bits*/
+    if (s->oas == 48) {
+        s->idr[5] = FIELD_DP32(s->idr[5], IDR5, OAS, SMMU_IDR5_OAS_48);
     }
 }
 
