@@ -751,7 +751,7 @@ static int decode_cd(SMMUv3State *s, SMMUTransCfg *cfg,
     if (!CD_A(cd)) {
         goto bad_cd; /* SMMU_IDR0.TERM_MODEL == 1 */
     }
-    if (CD_S(cd)) {
+    if ((FIELD_EX32(s->idr[0], IDR0, STALL_MODEL) & 0x1) && CD_S(cd)) {
         goto bad_cd; /* !STE_SECURE && SMMU_IDR0.STALL_MODEL == 1 */
     }
     if (CD_HA(cd) || CD_HD(cd)) {
