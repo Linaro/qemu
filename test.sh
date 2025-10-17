@@ -1,0 +1,22 @@
+build/qemu-system-aarch64 \
+-machine virt,accel=kvm,gic-version=3 \
+-object iommufd,id=iommufd0 \
+-bios /home/linaro/virtual/QEMU_EFI.fd \
+-cpu host -smp cpus=4 -m size=16G,slots=4,maxmem=256G -nographic \
+-device virtio-blk-device,drive=image \
+-drive if=none,file=/home/linaro/virtual/openEuler-22.03-LTS-SP3-aarch64.qcow2,id=image \
+-kernel /home/linaro/Image \
+-append "console=ttyAMA0,115200  root=/dev/vda2" \
+-device arm-smmuv3,primary-bus=pcie.0,id=smmuv3.0,accel=on,pasid=on,ril=off,oas=48,stall=on \
+-device vfio-pci,host=0000:75:00.1,bus=pcie.0,iommufd=iommufd0 \
+-device pxb-pcie,id=pcie.1,bus_nr=2,bus=pcie.0 \
+-device pcie-root-port,id=pcie1.port1,chassis=1,bus=pcie.1,pref64-reserve=2M,io-reserve=1K \
+-device arm-smmuv3,primary-bus=pcie.1,id=smmuv3.1,accel=on,pasid=on,ril=off,oas=48,stall=on \
+-device vfio-pci,host=0000:76:00.1,bus=pcie1.port1,iommufd=iommufd0 \
+-device pxb-pcie,id=pcie.2,bus_nr=8,bus=pcie.0 \
+-device arm-smmuv3,primary-bus=pcie.2,id=smmuv3.2,accel=on,pasid=on,ril=off,oas=48,stall=on \
+-device pcie-root-port,id=port2,bus=pcie.2,chassis=2,pref64-reserve=2M,io-reserve=1K \
+-device vfio-pci,host=0000:79:00.1,bus=port2,iommufd=iommufd0 \
+-netdev user,id=user0,hostfwd=tcp::5000-:22 \
+-device virtio-net-device,netdev=user0 \
+-nographic
