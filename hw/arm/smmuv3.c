@@ -2005,11 +2005,13 @@ static void smmu_realize(DeviceState *d, Error **errp)
 
     if (s->accel) {
         smmuv3_accel_init(s);
+#if 0
         error_setg(&s->migration_blocker, "Migration not supported with SMMUv3 "
                    "accelerator mode enabled");
         if (migrate_add_blocker(&s->migration_blocker, errp) < 0) {
             return;
         }
+#endif
     }
 
     c->parent_realize(d, &local_err);

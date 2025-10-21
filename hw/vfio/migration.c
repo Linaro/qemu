@@ -1056,7 +1056,7 @@ static bool vfio_multiple_devices_migration_is_supported(void)
 
     return all_support_p2p || device_num <= 1;
 }
-
+#if 0
 static int vfio_block_multiple_devices_migration(VFIODevice *vbasedev, Error **errp)
 {
     if (vfio_multiple_devices_migration_is_supported()) {
@@ -1079,6 +1079,7 @@ static int vfio_block_multiple_devices_migration(VFIODevice *vbasedev, Error **e
     return migrate_add_blocker_normal(&multiple_devices_migration_blocker,
                                       errp);
 }
+#endif
 
 static void vfio_unblock_multiple_devices_migration(void)
 {
@@ -1147,10 +1148,12 @@ bool vfio_migration_active(void)
     return true;
 }
 
+/*
 static bool vfio_viommu_preset(VFIODevice *vbasedev)
 {
     return vbasedev->bcontainer->space->as != &address_space_memory;
 }
+*/
 
 /*
  * Return true when either migration initialized or blocker registered.
@@ -1182,7 +1185,7 @@ bool vfio_migration_realize(VFIODevice *vbasedev, Error **errp)
 
         return !vfio_block_migration(vbasedev, err, errp);
     }
-
+#if 0
     if ((!vbasedev->dirty_pages_supported ||
          vbasedev->device_dirty_page_tracking == ON_OFF_AUTO_OFF) &&
         !vbasedev->iommu_dirty_tracking) {
@@ -1196,24 +1199,22 @@ bool vfio_migration_realize(VFIODevice *vbasedev, Error **errp)
         warn_report("%s: VFIO device doesn't support device and "
                     "IOMMU dirty tracking", vbasedev->name);
     }
-
     ret = vfio_block_multiple_devices_migration(vbasedev, errp);
     if (ret) {
         goto out_deinit;
     }
-
     if (vfio_viommu_preset(vbasedev)) {
         error_setg(&err, "%s: Migration is currently not supported "
                    "with vIOMMU enabled", vbasedev->name);
         goto add_blocker;
     }
-
+#endif
     trace_vfio_migration_realize(vbasedev->name);
     return true;
 
-add_blocker:
-    ret = vfio_block_migration(vbasedev, err, errp);
-out_deinit:
+//add_blocker:
+//    ret = vfio_block_migration(vbasedev, err, errp);
+//out_deinit:
     if (ret) {
         vfio_migration_deinit(vbasedev);
     }
