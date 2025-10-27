@@ -42,6 +42,31 @@
                                         ((ptw_info).stage == SMMU_STAGE_2 && \
                                         (cfg)->s2cfg.record_faults))
 
+static int smmuv3_issue_cmd(SMMUv3State *s, uint32_t cmd_id, uint32_t sid, SMMUDevice *sdev)
+{
+    Cmd cmd = {};
+    Error *local_err = NULL;
+
+    switch (cmd_id) {
+    case SMMU_CMD_CFGI_CD_ALL:
+        cmd.word[0] = cmd_id;
+        cmd.word[1] = sid;
+        break;
+    case SMMU_CMD_TLBI_NH_ALL:
+        cmd.word[0] = cmd_id;
+        break;
+    default:
+        return -EINVAL;
+    }
+
+    if (!smmuv3_accel_issue_inv_cmd(s, &cmd, sdev, &local_err)) {
+        error_report_err(local_err);
+        return SMMU_CERROR_ILL;
+    }
+
+    return 0;
+}
+
 /**
  * smmuv3_trigger_irq - pulse @irq if enabled and update
  * GERROR register in case of GERROR interrupt
@@ -2046,6 +2071,43 @@ static const VMStateDescription vmstate_smmuv3_queue = {
     },
 };
 
+static int smmuv3_post_load(void *opaque, int version_id)
+{
+    SMMUv3State *s = opaque;
+    SMMUv3AccelState *accel = s->s_accel;
+    SMMUv3AccelDevice *accel_dev;
+    Error *local_err = NULL;
+
+    QLIST_FOREACH(accel_dev, &accel->device_list, next) {
+        SMMUDevice *sdev = &accel_dev->sdev;
+        uint32_t sid = smmu_get_sid(sdev);
+
+	smmuv3_flush_config(sdev);
+	if (!smmuv3_accel_install_ste(s, sdev, sid, &local_err)) {
+		error_report_err(local_err);
+		return SMMU_CERROR_ILL;
+	}
+    }
+
+    return 0;
+}
+
+static int smmuv3_post_save(void *opaque)
+{
+    SMMUv3State *s = opaque;
+    SMMUv3AccelState *accel = s->s_accel;
+    SMMUv3AccelDevice *accel_dev;
+
+    QLIST_FOREACH(accel_dev, &accel->device_list, next) {
+        SMMUDevice *sdev = &accel_dev->sdev;
+        uint32_t sid = smmu_get_sid(sdev);
+        smmuv3_issue_cmd(s, SMMU_CMD_CFGI_CD_ALL, sid, sdev);
+    }
+
+    smmuv3_issue_cmd(s, SMMU_CMD_TLBI_NH_ALL, 0, NULL);
+    return 0;
+}
+
 static bool smmuv3_gbpa_needed(void *opaque)
 {
     SMMUv3State *s = opaque;
@@ -2070,6 +2132,8 @@ static const VMStateDescription vmstate_smmuv3 = {
     .version_id = 1,
     .minimum_version_id = 1,
     .priority = MIG_PRI_IOMMU,
+    .post_load = smmuv3_post_load,
+    .post_save = smmuv3_post_save,
     .fields = (const VMStateField[]) {
         VMSTATE_UINT32(features, SMMUv3State),
         VMSTATE_UINT8(sid_size, SMMUv3State),
