@@ -1616,12 +1616,19 @@ static MemTxResult smmu_writell(SMMUv3State *s, hwaddr offset,
 static MemTxResult smmu_writel(SMMUv3State *s, hwaddr offset,
                                uint64_t data, MemTxAttrs attrs)
 {
+    Error *local_err = NULL;
+
     switch (offset) {
     case A_CR0:
         s->cr[0] = data;
         s->cr0ack = data & ~SMMU_CR0_RESERVED;
         /* in case the command queue has been enabled */
         smmuv3_cmdq_consume(s);
+        /* Allocate vEVENTQ if guest enables EventQ and vIOMMU is ready */
+        if (!smmuv3_accel_alloc_veventq(s, &local_err)) {
+            error_report_err(local_err);
+            /* TODO: Should we return err? */
+        }
         return MEMTX_OK;
     case A_CR1:
         s->cr[1] = data;

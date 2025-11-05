@@ -22,6 +22,7 @@
 typedef struct SMMUViommu {
     IOMMUFDBackend *iommufd;
     IOMMUFDViommu viommu;
+    IOMMUFDVeventq *veventq;
     uint32_t bypass_hwpt_id;
     uint32_t abort_hwpt_id;
     QLIST_HEAD(, SMMUv3AccelDevice) device_list;
@@ -56,6 +57,7 @@ bool smmuv3_accel_issue_inv_cmd(SMMUv3State *s, void *cmd, SMMUDevice *sdev,
 void smmuv3_accel_gbpa_update(SMMUv3State *s);
 void smmuv3_accel_reset(SMMUv3State *s);
 void smmuv3_accel_idr_override(SMMUv3State *s);
+bool smmuv3_accel_alloc_veventq(SMMUv3State *s, Error **errp);
 #else
 static inline void smmuv3_accel_init(SMMUv3State *s)
 {
@@ -86,6 +88,10 @@ static inline void smmuv3_accel_reset(SMMUv3State *s)
 }
 static inline void smmuv3_accel_idr_override(SMMUv3State *s)
 {
+}
+bool smmuv3_accel_alloc_veventq(SMMUv3State *s, Error **errp)
+{
+    return true;
 }
 #endif
 

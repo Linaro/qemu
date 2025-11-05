@@ -383,6 +383,59 @@ static SMMUv3AccelDevice *smmuv3_accel_get_dev(SMMUState *bs, SMMUPciBus *sbus,
     return accel_dev;
 }
 
+static void smmuv3_accel_free_veventq(SMMUViommu *vsmmu)
+{
+    IOMMUFDVeventq *veventq = vsmmu->veventq;
+
+    if (!veventq) {
+        return;
+    }
+    iommufd_backend_free_id(vsmmu->iommufd, veventq->veventq_id);
+    g_free(veventq);
+    vsmmu->veventq = NULL;
+}
+
+bool smmuv3_accel_alloc_veventq(SMMUv3State *s, Error **errp)
+{
+    SMMUv3AccelState *s_accel = s->s_accel;
+    IOMMUFDVeventq *veventq;
+    SMMUViommu *vsmmu;
+    uint32_t veventq_id;
+    uint32_t veventq_fd;
+
+    if (!s_accel || !s_accel->vsmmu) {
+        return true;
+    }
+
+    vsmmu = s_accel->vsmmu;
+    if (vsmmu->veventq) {
+        return true;
+    }
+
+    /*
+     * Check whether the Guest has enabled the Event Queue. The queue enabled
+     * means EVENTQ_BASE has been programmed with a valid base address and size.
+     * If it’s not yet configured, return and retry later.
+     */
+    if (!smmuv3_eventq_enabled(s)) {
+        return true;
+    }
+
+    if (!iommufd_backend_alloc_veventq(vsmmu->iommufd, vsmmu->viommu.viommu_id,
+                                       IOMMU_VEVENTQ_TYPE_ARM_SMMUV3,
+                                       1 << s->eventq.log2size, &veventq_id,
+                                       &veventq_fd, errp)) {
+        return false;
+    }
+
+    veventq = g_new(IOMMUFDVeventq, 1);
+    veventq->veventq_id = veventq_id;
+    veventq->veventq_fd = veventq_fd;
+    veventq->viommu = &vsmmu->viommu;
+    vsmmu->veventq = veventq;
+    return true;
+}
+
 static bool
 smmuv3_accel_dev_alloc_viommu(SMMUv3AccelDevice *accel_dev,
                               HostIOMMUDeviceIOMMUFD *idev, Error **errp)
@@ -438,8 +491,15 @@ smmuv3_accel_dev_alloc_viommu(SMMUv3AccelDevice *accel_dev,
     vsmmu->iommufd = idev->iommufd;
     s_accel->vsmmu = vsmmu;
     accel_dev->vsmmu = vsmmu;
+
+    /* Allocate a vEVENTQ if guest has enabled event queue */
+    if (!smmuv3_accel_alloc_veventq(s, errp)) {
+        goto free_bypass_hwpt;
+    }
     return true;
 
+free_bypass_hwpt:
+    iommufd_backend_free_id(idev->iommufd, vsmmu->bypass_hwpt_id);
 free_abort_hwpt:
     iommufd_backend_free_id(idev->iommufd, vsmmu->abort_hwpt_id);
 free_viommu:
@@ -536,6 +596,7 @@ static void smmuv3_accel_unset_iommu_device(PCIBus *bus, void *opaque,
     }
 
     if (QLIST_EMPTY(&vsmmu->device_list)) {
+        smmuv3_accel_free_veventq(vsmmu);
         iommufd_backend_free_id(vsmmu->iommufd, vsmmu->bypass_hwpt_id);
         iommufd_backend_free_id(vsmmu->iommufd, vsmmu->abort_hwpt_id);
         iommufd_backend_free_id(vsmmu->iommufd, vsmmu->viommu.viommu_id);
