@@ -30,9 +30,26 @@ typedef struct SMMUViommu {
     QLIST_HEAD(, SMMUv3AccelDevice) device_list;
 } SMMUViommu;
 
+typedef struct PendFaultEntry {
+    struct iommu_hwpt_pgfault fault;
+    QTAILQ_ENTRY(PendFaultEntry) entry;
+} PendFaultEntry;
+
+typedef struct PageRespEntry {
+    struct iommu_hwpt_page_response resp;
+    QTAILQ_ENTRY(PageRespEntry) entry;
+} PageRespEntry;
+
 typedef struct SMMUS1Hwpt {
+    void  *sdev;
     IOMMUFDBackend *iommufd;
     uint32_t hwpt_id;
+    uint32_t out_fault_fd;
+    /* fault handling */
+    QemuMutex fault_mutex;
+    QTAILQ_HEAD(, PageRespEntry) pageresp;
+    QTAILQ_HEAD(, PendFaultEntry) pendfault;
+    bool exiting;
 } SMMUS1Hwpt;
 
 typedef struct SMMUv3AccelDevice {
@@ -60,6 +77,8 @@ void smmuv3_accel_gbpa_update(SMMUv3State *s);
 void smmuv3_accel_reset(SMMUv3State *s);
 void smmuv3_accel_idr_override(SMMUv3State *s);
 bool smmuv3_accel_alloc_veventq(SMMUv3State *s, Error **errp);
+void smmuv3_notify_stall_resume(SMMUState *bs, uint32_t sid,
+                                uint32_t stag, uint32_t code);
 #else
 static inline void smmuv3_accel_init(SMMUv3State *s)
 {
