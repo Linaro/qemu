@@ -110,12 +110,14 @@ smmuv3_accel_check_hw_compatible(SMMUv3State *s,
         error_setg(errp, "Host SMMUv3 doesn't support 64K translation granule");
         return false;
     }
-
+#if 0
     /* QEMU SMMUv3 supports architecture version 3.1 */
     if (info->aidr < s->aidr) {
+	    printf("gzf info->aidr=%d s->aidr=%d\n", info->aidr, s->aidr);
         error_setg(errp, "Host SMMUv3 architecture version not compatible");
         return false;
     }
+#endif
     return true;
 }
 
@@ -844,6 +846,9 @@ void smmuv3_accel_gbpa_update(SMMUv3State *s)
     }
 
     QLIST_FOREACH(accel_dev, &vsmmu->device_list, next) {
+        if (!accel_dev->vdev)
+            continue;
+
         if (!host_iommu_device_iommufd_attach_hwpt(accel_dev->idev, hwpt_id,
                                                    &local_err)) {
             error_append_hint(&local_err, "Failed to attach GBPA hwpt id %u "
