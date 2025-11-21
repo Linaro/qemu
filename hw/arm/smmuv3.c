@@ -1502,6 +1502,7 @@ static int smmuv3_cmdq_consume(SMMUv3State *s, Error **errp)
             smmuv3_range_inval(bs, &cmd, SMMU_STAGE_2);
             break;
         case SMMU_CMD_ATC_INV:
+	{
             SMMUDevice *sdev = smmu_find_sdev(bs, CMD_SID(&cmd));
 
             if (!sdev) {
@@ -1513,6 +1514,7 @@ static int smmuv3_cmdq_consume(SMMUv3State *s, Error **errp)
                 break;
             }
             break;
+        }
         case SMMU_CMD_TLBI_EL3_ALL:
         case SMMU_CMD_TLBI_EL3_VA:
         case SMMU_CMD_TLBI_EL2_ALL:
