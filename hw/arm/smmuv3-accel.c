@@ -692,6 +692,14 @@ void smmuv3_accel_idr_override(SMMUv3State *s)
     if (s->pasid) {
         s->idr[1] = FIELD_DP32(s->idr[1], IDR1, SSIDSIZE, SMMU_IDR1_SSIDSIZE);
     }
+
+    /*
+     * By default QEMU SMMUv3 has no stall support. Update IDR0 if user
+     * has enabled it.
+     */
+    if (s->stall) {
+        s->idr[0] = FIELD_DP32(s->idr[0], IDR0, STALL_MODEL, 0);
+    }
 }
 
 /* Based on SMUUv3 GPBA.ABORT configuration, attach a corresponding HWPT */

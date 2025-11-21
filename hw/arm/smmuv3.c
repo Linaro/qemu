@@ -2093,6 +2093,7 @@ static const Property smmuv3_properties[] = {
     DEFINE_PROP_BOOL("ats", SMMUv3State, ats, false),
     DEFINE_PROP_UINT8("oas", SMMUv3State, oas, 44),
     DEFINE_PROP_BOOL("pasid", SMMUv3State, pasid, false),
+    DEFINE_PROP_BOOL("stall", SMMUv3State, stall, false),
 };
 
 static void smmuv3_instance_init(Object *obj)
