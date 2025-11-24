@@ -1533,10 +1533,22 @@ static int smmuv3_cmdq_consume(SMMUv3State *s, Error **errp)
         case SMMU_CMD_TLBI_EL2_VA:
         case SMMU_CMD_TLBI_EL2_VAA:
         case SMMU_CMD_PRI_RESP:
-        case SMMU_CMD_RESUME:
         case SMMU_CMD_STALL_TERM:
             trace_smmuv3_unhandled_cmd(type);
             break;
+        case SMMU_CMD_RESUME:
+        {
+            uint32_t sid = CMD_SID(&cmd);
+            uint16_t stag = CMD_RESUME_STAG(&cmd);
+            uint8_t action = CMD_RESUME_AC(&cmd);
+            uint32_t code = IOMMUFD_PAGE_RESP_INVALID;
+
+            if (action) {
+                code = IOMMUFD_PAGE_RESP_SUCCESS;
+            }
+            smmuv3_notify_stall_resume(bs, sid, stag, code);
+            break;
+        }
         default:
             cmd_error = SMMU_CERROR_ILL;
             break;
