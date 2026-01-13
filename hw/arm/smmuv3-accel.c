@@ -172,6 +172,155 @@ static uint32_t smmuv3_accel_gbpa_hwpt(SMMUv3State *s, SMMUv3AccelState *accel)
            accel->abort_hwpt_id : accel->bypass_hwpt_id;
 }
 
+static void smmuv3_report_iommu_fault(SMMUS1Hwpt *hwpt,
+                                      struct iommu_hwpt_pgfault *fault)
+{
+    PendFaultEntry *pend;
+    SMMUDevice *sdev = hwpt->sdev;
+    SMMUState *bs = sdev->smmu;
+    SMMUv3State *s3 = ARM_SMMUV3(bs);
+    uint32_t sid = smmu_get_sid(sdev);
+    SMMUEventInfo info = {0};
+
+    info.sid = sid;
+    info.type = SMMU_EVT_F_TRANSLATION;
+    info.u.f_translation.addr = fault->addr;
+    info.u.f_translation.stall = true;
+    info.u.f_translation.ssid = fault->pasid;
+    info.u.f_translation.stag = fault->grpid;
+
+    if (fault->flags | IOMMU_PGFAULT_FLAGS_PASID_VALID) {
+        info.u.f_translation.ssv = true;
+    }
+    if (fault->perm & IOMMU_PGFAULT_PERM_READ) {
+        info.u.f_translation.rnw = true;
+    }
+    if (fault->perm & IOMMU_PGFAULT_PERM_PRIV) {
+        info.u.f_translation.pnu = true;
+    }
+    if (fault->perm & IOMMU_PGFAULT_PERM_EXEC) {
+        info.u.f_translation.ind = true;
+    }
+
+    pend = g_new0(PendFaultEntry, 1);
+    memcpy(&pend->fault, fault, sizeof(*fault));
+    qemu_mutex_lock(&hwpt->fault_mutex);
+    QTAILQ_INSERT_TAIL(&hwpt->pendfault, pend, entry);
+    qemu_mutex_unlock(&hwpt->fault_mutex);
+    smmuv3_record_event(s3, &info);
+    return;
+}
+
+static void write_fault_handler(void *opaque)
+{
+    SMMUS1Hwpt *hwpt = opaque;
+    PageRespEntry *msg, *tmp;
+    struct iommu_hwpt_page_response *resp;
+    ssize_t ret;
+
+    qemu_mutex_lock(&hwpt->fault_mutex);
+
+    QTAILQ_FOREACH_SAFE(msg, &hwpt->pageresp, entry, tmp) {
+        resp = &msg->resp;
+
+        ret = write(hwpt->out_fault_fd, resp, sizeof(*resp));
+        if (ret == sizeof(*resp)) {
+            QTAILQ_REMOVE(&hwpt->pageresp, msg, entry);
+            g_free(msg);
+        } else if (ret < 0) {
+            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                warn_report("Write resp[cookie 0x%x] fail: %s",
+                            resp->cookie, strerror(errno));
+            }
+            break;
+        } else {
+            warn_report("Partial write of resp data: %zd/%zu", ret, sizeof(*resp));
+            break;
+        }
+    }
+
+    qemu_mutex_unlock(&hwpt->fault_mutex);
+}
+
+void smmuv3_notify_stall_resume(SMMUState *bs, uint32_t sid,
+                                uint32_t stag, uint32_t code)
+{
+    SMMUDevice *sdev = smmu_find_sdev(bs, sid);
+    SMMUv3AccelDevice *accel_dev;
+    PageRespEntry *msg;
+    PendFaultEntry *pend, *tmp;
+    SMMUS1Hwpt *hwpt;
+    bool found = false;
+
+    if (!sdev) {
+        return;
+    }
+
+    accel_dev = container_of(sdev, SMMUv3AccelDevice, sdev);
+    hwpt = accel_dev->s1_hwpt;
+    msg = g_new0(PageRespEntry, 1);
+
+    /* Kernel expects addr and pasid info for page response */
+    qemu_mutex_lock(&hwpt->fault_mutex);
+    QTAILQ_FOREACH_SAFE(pend, &hwpt->pendfault, entry, tmp) {
+        if (pend->fault.grpid == stag) {
+            QTAILQ_REMOVE(&hwpt->pendfault, pend, entry);
+            msg->resp.cookie = pend->fault.cookie;
+            msg->resp.code = code;
+            QTAILQ_INSERT_TAIL(&hwpt->pageresp, msg, entry);
+
+            g_free(pend);
+            found = true;
+            break;
+        }
+    }
+
+    qemu_mutex_unlock(&hwpt->fault_mutex);
+    if (found) {
+        write_fault_handler(hwpt);
+    } else {
+        warn_report("No matching fault for resume(stag 0x%x), drop!", stag);
+        return;
+    }
+}
+
+static void read_fault_handler(void *opaque)
+{
+    SMMUS1Hwpt *hwpt = opaque;
+    struct iommu_hwpt_pgfault *fault;
+    ssize_t ret;
+
+    fault = g_new0(struct iommu_hwpt_pgfault, 1);
+
+    ret = read(hwpt->out_fault_fd, fault, sizeof(*fault));
+    if (ret == sizeof(*fault)) {
+         smmuv3_report_iommu_fault(hwpt, fault);
+    } else if (ret < 0) {
+        if (errno != EAGAIN && errno != EWOULDBLOCK) {
+            warn_report("Read fault[hwpt_id 0x%x] failed: %s",
+                        hwpt->hwpt_id, strerror(errno));
+        }
+        g_free(fault);
+    } else {
+        warn_report("Partial read of fault data: %zd/%zu", ret, sizeof(*fault));
+        g_free(fault);
+    }
+}
+
+static void create_fault_handlers(SMMUS1Hwpt *hwpt)
+{
+    if (!hwpt->out_fault_fd) {
+        warn_report("No fault fd for hwpt id: %d", hwpt->hwpt_id);
+        return;
+    }
+
+    qemu_mutex_init(&hwpt->fault_mutex);
+    QTAILQ_INIT(&hwpt->pageresp);
+    QTAILQ_INIT(&hwpt->pendfault);
+    fcntl(hwpt->out_fault_fd, F_SETFL, O_NONBLOCK);
+    qemu_set_fd_handler(hwpt->out_fault_fd, read_fault_handler, NULL, hwpt);
+}
+
 static bool
 smmuv3_accel_alloc_vdev(SMMUv3AccelDevice *accel_dev, int sid, Error **errp)
 {
@@ -199,7 +348,7 @@ smmuv3_accel_alloc_vdev(SMMUv3AccelDevice *accel_dev, int sid, Error **errp)
 
 static SMMUS1Hwpt *
 smmuv3_accel_dev_alloc_translate(SMMUv3AccelDevice *accel_dev, STE *ste,
-                                 Error **errp)
+                                 bool req_fault_fd, Error **errp)
 {
     uint64_t ste_0 = (uint64_t)ste->word[0] | (uint64_t)ste->word[1] << 32;
     uint64_t ste_1 = (uint64_t)ste->word[2] | (uint64_t)ste->word[3] << 32;
@@ -211,19 +360,25 @@ smmuv3_accel_dev_alloc_translate(SMMUv3AccelDevice *accel_dev, STE *ste,
             cpu_to_le64(ste_1 & STE1_MASK),
         },
     };
-    uint32_t hwpt_id = 0, flags = 0;
+    uint32_t hwpt_id = 0, flags = 0, out_fault_fd = 0;
     SMMUS1Hwpt *s1_hwpt;
+
+    if (req_fault_fd) {
+        flags |= IOMMU_HWPT_FAULT_ID_VALID;
+    }
 
     if (!iommufd_backend_alloc_hwpt(idev->iommufd, idev->devid,
                                     accel->viommu->viommu_id, flags,
                                     IOMMU_HWPT_DATA_ARM_SMMUV3,
                                     sizeof(nested_data), &nested_data,
-                                    &hwpt_id, errp)) {
+                                    &hwpt_id, &out_fault_fd, errp)) {
             return NULL;
     }
 
     s1_hwpt = g_new0(SMMUS1Hwpt, 1);
     s1_hwpt->hwpt_id = hwpt_id;
+    s1_hwpt->sdev = &accel_dev->sdev;
+    s1_hwpt->out_fault_fd = out_fault_fd;
     trace_smmuv3_accel_translate_ste(accel_dev->vdev->virt_id, hwpt_id,
                                      nested_data.ste[1], nested_data.ste[0]);
     return s1_hwpt;
@@ -239,6 +394,7 @@ bool smmuv3_accel_install_ste(SMMUv3State *s, SMMUDevice *sdev, int sid,
     HostIOMMUDeviceIOMMUFD *idev;
     uint32_t config, hwpt_id = 0;
     SMMUS1Hwpt *s1_hwpt = NULL;
+    bool req_fault_fd = false;
     const char *type;
     STE ste;
 
@@ -261,6 +417,10 @@ bool smmuv3_accel_install_ste(SMMUv3State *s, SMMUDevice *sdev, int sid,
         return true;
     }
 
+    if (STE_S1CDMAX(&ste)) {
+        req_fault_fd = true;
+    }
+
     /*
      * Install the STE based on SMMU enabled/config:
      * - attach a pre-allocated HWPT for abort/bypass
@@ -280,7 +440,8 @@ bool smmuv3_accel_install_ste(SMMUv3State *s, SMMUDevice *sdev, int sid,
         } else if (STE_CFG_BYPASS(config)) {
             hwpt_id = accel->bypass_hwpt_id;
         } else if (STE_CFG_S1_TRANSLATE(config)) {
-            s1_hwpt = smmuv3_accel_dev_alloc_translate(accel_dev, &ste, errp);
+            s1_hwpt = smmuv3_accel_dev_alloc_translate(accel_dev, &ste,
+	                                               req_fault_fd, errp);
             if (!s1_hwpt) {
                 return false;
             }
@@ -315,6 +476,10 @@ bool smmuv3_accel_install_ste(SMMUv3State *s, SMMUDevice *sdev, int sid,
         type = "bypass";
     } else {
         type = "translate";
+    }
+
+    if (req_fault_fd) {
+        create_fault_handlers(accel_dev->s1_hwpt);
     }
 
     trace_smmuv3_accel_install_ste(sid, type, hwpt_id);
@@ -423,14 +588,14 @@ smmuv3_accel_alloc_viommu(SMMUv3State *s, HostIOMMUDeviceIOMMUFD *idev,
     if (!iommufd_backend_alloc_hwpt(idev->iommufd, idev->devid, viommu_id,
                                     0, IOMMU_HWPT_DATA_ARM_SMMUV3,
                                     sizeof(abort_data), &abort_data,
-                                    &accel->abort_hwpt_id, errp)) {
+                                    &accel->abort_hwpt_id, NULL, errp)) {
         goto free_viommu;
     }
 
     if (!iommufd_backend_alloc_hwpt(idev->iommufd, idev->devid, viommu_id,
                                     0, IOMMU_HWPT_DATA_ARM_SMMUV3,
                                     sizeof(bypass_data), &bypass_data,
-                                    &accel->bypass_hwpt_id, errp)) {
+                                    &accel->bypass_hwpt_id, NULL, errp)) {
         goto free_abort_hwpt;
     }
 
@@ -530,6 +695,12 @@ static void smmuv3_accel_unset_iommu_device(PCIBus *bus, void *opaque,
     }
 
     if (accel_dev->s1_hwpt) {
+        if (accel_dev->s1_hwpt->out_fault_fd) {
+            qemu_set_fd_handler(accel_dev->s1_hwpt->out_fault_fd,
+	                        NULL, NULL, NULL);
+            qemu_mutex_destroy(&accel_dev->s1_hwpt->fault_mutex);
+        }
+
         iommufd_backend_free_id(accel_dev->idev->iommufd,
                                 accel_dev->s1_hwpt->hwpt_id);
         g_free(accel_dev->s1_hwpt);
