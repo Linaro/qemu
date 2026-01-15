@@ -1062,6 +1062,58 @@ static void pcie_ext_cap_set_next(PCIDevice *dev, uint16_t pos, uint16_t next)
  * capability-specific registers are not checked and are considered a
  * user-controlled override.
  */
+
+#if 1
+
+bool pcie_insert_capability(PCIDevice *dev, uint16_t cap_id, uint8_t cap_ver,
+                            uint16_t offset, uint16_t size)
+{
+    uint16_t pos = PCI_CONFIG_SPACE_SIZE, prev = 0;
+    uint32_t header;
+
+    assert(offset >= PCI_CONFIG_SPACE_SIZE);
+    assert(offset < (uint16_t)(offset + size));
+    assert((uint16_t)(offset + size) <= PCIE_CONFIG_SPACE_SIZE);
+    assert(size >= 8);
+    assert(pci_is_express(dev));
+
+    header = pci_get_long(dev->config + pos);
+    if (!header) {
+        /* No extended capability, check requested offset is at PCI_CONFIG_SPACE_SIZE*/
+        if (offset != pos) {
+            return false;
+        }
+        pci_set_long(dev->config + pos, PCI_EXT_CAP(cap_id, cap_ver, 0));
+        goto out;
+    }
+
+    while (header && pos && offset >= pos) {
+        uint16_t next = PCI_EXT_CAP_NEXT(header);
+
+        /* Reject insertion inside an existing ECAP header (4 bytes) */
+        if (offset < pos + PCI_EXT_CAP_ALIGN) {
+            return false;
+        }
+
+        prev = pos;
+        pos = next;
+        header = pos ? pci_get_long(dev->config + pos) : 0;
+    }
+
+    pci_set_long(dev->config + offset, PCI_EXT_CAP(cap_id, cap_ver, pos));
+    if (prev) {
+        pcie_ext_cap_set_next(dev, prev, offset);
+    }
+
+out:
+    /* Make capability read-only by default */
+    memset(dev->wmask + offset, 0, size);
+    memset(dev->w1cmask + offset, 0, size);
+    /* Check capability by default */
+    memset(dev->cmask + offset, 0xFF, size);
+    return true;
+}
+#else
 bool pcie_insert_capability(PCIDevice *dev, uint16_t cap_id, uint8_t cap_ver,
                             uint16_t offset, uint16_t size)
 {
@@ -1107,6 +1159,7 @@ bool pcie_insert_capability(PCIDevice *dev, uint16_t cap_id, uint8_t cap_ver,
     memset(dev->cmask + offset, 0xFF, size);
     return true;
 }
+#endif
 
 /*
  * Caller must supply valid (offset, size) such that the range wouldn't
