@@ -76,6 +76,7 @@ REG32(STE_7, 28)
     (((uint64_t)FIELD_EX32((x)->word[0], STE_0, CTXPTR_LO) << 6) |  \
      ((uint64_t)FIELD_EX32((x)->word[1], STE_1, CTXPTR_HI) << 32))
 #define STE_S1CDMAX(x)    FIELD_EX32((x)->word[1], STE_1, S1CDMAX)
+#define STE_S1DSS(x)       extract32((x)->word[2], 0,  2)
 #define STE_S1STALLD(x)   FIELD_EX32((x)->word[2], STE_2, S1STALLD)
 #define STE_EATS(x)       FIELD_EX32((x)->word[2], STE_2, EATS)
 #define STE_STRW(x)       FIELD_EX32((x)->word[2], STE_2, STRW)
